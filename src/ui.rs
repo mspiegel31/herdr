@@ -153,7 +153,12 @@ fn compute_sidebar_width(app: &AppState) -> u16 {
 fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(
         app.mode,
-        Mode::Navigate | Mode::CreateSession | Mode::RenameSession | Mode::Resize | Mode::ConfirmClose | Mode::ContextMenu
+        Mode::Navigate
+            | Mode::CreateSession
+            | Mode::RenameSession
+            | Mode::Resize
+            | Mode::ConfirmClose
+            | Mode::ContextMenu
     );
 
     // Thin vertical separator line on the right edge
@@ -205,7 +210,14 @@ fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
 
         let line = Line::from(vec![
             Span::styled(&num_label, dim_style),
-            Span::styled(" ", if is_selected { row_style } else { Style::default() }),
+            Span::styled(
+                " ",
+                if is_selected {
+                    row_style
+                } else {
+                    Style::default()
+                },
+            ),
             Span::styled(
                 icon,
                 if is_selected {
@@ -226,7 +238,12 @@ fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
 fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(
         app.mode,
-        Mode::Navigate | Mode::CreateSession | Mode::RenameSession | Mode::Resize | Mode::ConfirmClose | Mode::ContextMenu
+        Mode::Navigate
+            | Mode::CreateSession
+            | Mode::RenameSession
+            | Mode::Resize
+            | Mode::ConfirmClose
+            | Mode::ContextMenu
     );
 
     let highlight_style = if is_navigating {
@@ -264,9 +281,7 @@ fn render_sidebar(app: &AppState, frame: &mut Frame, area: Rect) {
         Mode::ConfirmClose => " CLOSE?".to_string(),
     };
     let title_style = if is_navigating {
-        Style::default()
-            .fg(app.accent)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(app.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -394,10 +409,7 @@ fn render_sidebar_toggle(frame: &mut Frame, area: Rect, collapsed: bool) {
     let x = area.x + content_w / 2;
     let toggle_area = Rect::new(x, bottom_y, 1, 1);
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            icon,
-            Style::default().fg(Color::DarkGray),
-        )),
+        Paragraph::new(Span::styled(icon, Style::default().fg(Color::DarkGray))),
         toggle_area,
     );
 }
@@ -536,9 +548,7 @@ fn render_empty(frame: &mut Frame, area: Rect, accent: Color) {
             Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 "n",
-                Style::default()
-                    .fg(accent)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
             ),
             Span::styled(" to create one", Style::default().fg(Color::DarkGray)),
         ]),
@@ -555,9 +565,7 @@ fn render_empty(frame: &mut Frame, area: Rect, accent: Color) {
 
 /// Floating overlay for navigate mode — appears at bottom of terminal area.
 fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key = Style::default()
-        .fg(app.accent)
-        .add_modifier(Modifier::BOLD);
+    let key = Style::default().fg(app.accent).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(Color::DarkGray);
     let label = Style::default().fg(Color::White);
 
@@ -653,9 +661,7 @@ fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
 
 /// Floating overlay for resize mode.
 fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    let key = Style::default()
-        .fg(app.accent)
-        .add_modifier(Modifier::BOLD);
+    let key = Style::default().fg(app.accent).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(Color::DarkGray);
 
     let mode_style = Style::default()
@@ -721,20 +727,19 @@ fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     let popup_y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(popup_x, popup_y, popup_w, popup_h);
 
-    let key = Style::default()
-        .fg(app.accent)
-        .add_modifier(Modifier::BOLD);
-    let warn = Style::default()
-        .fg(Color::Red)
-        .add_modifier(Modifier::BOLD);
+    let key = Style::default().fg(app.accent).add_modifier(Modifier::BOLD);
+    let warn = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(Color::DarkGray);
 
-    let title_line = Line::from(vec![
-        Span::styled(" Close workspace?", warn),
-    ]);
+    let title_line = Line::from(vec![Span::styled(" Close workspace?", warn)]);
 
     let detail_line = Line::from(vec![
-        Span::styled(format!(" {ws_name}"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!(" {ws_name}"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(format!(" — {pane_text}"), dim),
     ]);
 
@@ -806,12 +811,13 @@ fn render_context_menu(app: &AppState, frame: &mut Frame) {
         if i as u16 >= inner.height {
             break;
         }
-        let style = if i == menu.selected { highlight } else { normal };
+        let style = if i == menu.selected {
+            highlight
+        } else {
+            normal
+        };
         let row = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
-        frame.render_widget(
-            Paragraph::new(format!(" {item}")).style(style),
-            row,
-        );
+        frame.render_widget(Paragraph::new(format!(" {item}")).style(style), row);
     }
 }
 
@@ -850,7 +856,7 @@ fn state_icon_style(state: AgentState, seen: bool) -> (&'static str, Style) {
     match (state, seen) {
         (AgentState::Waiting, _) => ("●", Style::default().fg(Color::Red)),
         (AgentState::Busy, _) => ("●", Style::default().fg(Color::Yellow)),
-        (AgentState::Idle, false) => ("●", Style::default().fg(Color::Blue)),  // Done
+        (AgentState::Idle, false) => ("●", Style::default().fg(Color::Blue)), // Done
         (AgentState::Idle, true) => ("○", Style::default().fg(Color::Green)),
         (AgentState::Unknown, _) => ("·", Style::default().fg(Color::DarkGray)),
     }

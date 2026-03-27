@@ -373,12 +373,7 @@ impl AppState {
                         mouse.row - info.inner_rect.y,
                         mouse.column - info.inner_rect.x,
                     );
-                    self.selection = Some(Selection::anchor(
-                        info.id,
-                        row,
-                        col,
-                        info.inner_rect,
-                    ));
+                    self.selection = Some(Selection::anchor(info.id, row, col, info.inner_rect));
 
                     if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
                         if ws.layout.focused() != info.id {
@@ -434,10 +429,7 @@ impl AppState {
                 if self.drag.take().is_some() {
                     // Drag ended
                 } else {
-                    let was_click = self
-                        .selection
-                        .as_ref()
-                        .is_some_and(|s| s.was_just_click());
+                    let was_click = self.selection.as_ref().is_some_and(|s| s.was_just_click());
                     if was_click {
                         self.selection = None;
                     } else {

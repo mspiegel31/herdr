@@ -4,6 +4,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use serde::Deserialize;
 use tracing::warn;
 
+use crate::detect::Agent;
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -36,7 +38,68 @@ pub struct UiConfig {
     /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
     pub accent: String,
     /// Play sounds when agents change state in background workspaces.
-    pub sound: bool,
+    pub sound: SoundConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SoundConfig {
+    pub enabled: bool,
+    pub agents: AgentSoundOverrides,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AgentSoundOverrides {
+    pub pi: AgentSoundSetting,
+    pub claude: AgentSoundSetting,
+    pub codex: AgentSoundSetting,
+    pub gemini: AgentSoundSetting,
+    pub cursor: AgentSoundSetting,
+    pub cline: AgentSoundSetting,
+    pub open_code: AgentSoundSetting,
+    pub github_copilot: AgentSoundSetting,
+    pub kimi: AgentSoundSetting,
+    pub droid: AgentSoundSetting,
+    pub amp: AgentSoundSetting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSoundSetting {
+    #[default]
+    Default,
+    On,
+    Off,
+}
+
+impl SoundConfig {
+    pub fn allows(&self, agent: Option<Agent>) -> bool {
+        if !self.enabled {
+            return false;
+        }
+
+        !matches!(self.agents.for_agent(agent), AgentSoundSetting::Off)
+    }
+}
+
+impl AgentSoundOverrides {
+    pub fn for_agent(&self, agent: Option<Agent>) -> AgentSoundSetting {
+        match agent {
+            Some(Agent::Pi) => self.pi,
+            Some(Agent::Claude) => self.claude,
+            Some(Agent::Codex) => self.codex,
+            Some(Agent::Gemini) => self.gemini,
+            Some(Agent::Cursor) => self.cursor,
+            Some(Agent::Cline) => self.cline,
+            Some(Agent::OpenCode) => self.open_code,
+            Some(Agent::GithubCopilot) => self.github_copilot,
+            Some(Agent::Kimi) => self.kimi,
+            Some(Agent::Droid) => self.droid,
+            Some(Agent::Amp) => self.amp,
+            None => AgentSoundSetting::Default,
+        }
+    }
 }
 
 impl Default for KeysConfig {
@@ -57,7 +120,34 @@ impl Default for UiConfig {
             sidebar_width: 26,
             confirm_close: true,
             accent: "cyan".into(),
-            sound: true,
+            sound: SoundConfig::default(),
+        }
+    }
+}
+
+impl Default for SoundConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            agents: AgentSoundOverrides::default(),
+        }
+    }
+}
+
+impl Default for AgentSoundOverrides {
+    fn default() -> Self {
+        Self {
+            pi: AgentSoundSetting::Default,
+            claude: AgentSoundSetting::Default,
+            codex: AgentSoundSetting::Default,
+            gemini: AgentSoundSetting::Default,
+            cursor: AgentSoundSetting::Default,
+            cline: AgentSoundSetting::Default,
+            open_code: AgentSoundSetting::Default,
+            github_copilot: AgentSoundSetting::Default,
+            kimi: AgentSoundSetting::Default,
+            droid: AgentSoundSetting::Off,
+            amp: AgentSoundSetting::Default,
         }
     }
 }
@@ -220,32 +310,53 @@ mod tests {
 
     #[test]
     fn parse_simple_char() {
-        assert_eq!(parse_key_combo("v"), (KeyCode::Char('v'), KeyModifiers::empty()));
+        assert_eq!(
+            parse_key_combo("v"),
+            (KeyCode::Char('v'), KeyModifiers::empty())
+        );
     }
 
     #[test]
     fn parse_ctrl_combo() {
-        assert_eq!(parse_key_combo("ctrl+s"), (KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert_eq!(
+            parse_key_combo("ctrl+s"),
+            (KeyCode::Char('s'), KeyModifiers::CONTROL)
+        );
     }
 
     #[test]
     fn parse_special_key() {
-        assert_eq!(parse_key_combo("enter"), (KeyCode::Enter, KeyModifiers::empty()));
-        assert_eq!(parse_key_combo("tab"), (KeyCode::Tab, KeyModifiers::empty()));
-        assert_eq!(parse_key_combo("esc"), (KeyCode::Esc, KeyModifiers::empty()));
+        assert_eq!(
+            parse_key_combo("enter"),
+            (KeyCode::Enter, KeyModifiers::empty())
+        );
+        assert_eq!(
+            parse_key_combo("tab"),
+            (KeyCode::Tab, KeyModifiers::empty())
+        );
+        assert_eq!(
+            parse_key_combo("esc"),
+            (KeyCode::Esc, KeyModifiers::empty())
+        );
     }
 
     #[test]
     fn parse_ctrl_shift() {
         assert_eq!(
             parse_key_combo("ctrl+shift+a"),
-            (KeyCode::Char('a'), KeyModifiers::CONTROL | KeyModifiers::SHIFT)
+            (
+                KeyCode::Char('a'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            )
         );
     }
 
     #[test]
     fn parse_f_key() {
-        assert_eq!(parse_key_combo("f5"), (KeyCode::F(5), KeyModifiers::empty()));
+        assert_eq!(
+            parse_key_combo("f5"),
+            (KeyCode::F(5), KeyModifiers::empty())
+        );
     }
 
     #[test]
@@ -275,8 +386,28 @@ fullscreen = "z"
 
         let kb = config.keybinds();
         assert_eq!(kb.split_vertical.0, KeyCode::Char('s'));
-        assert_eq!(kb.split_horizontal, (KeyCode::Char('s'), KeyModifiers::SHIFT));
+        assert_eq!(
+            kb.split_horizontal,
+            (KeyCode::Char('s'), KeyModifiers::SHIFT)
+        );
         assert_eq!(kb.close_pane, (KeyCode::Char('w'), KeyModifiers::CONTROL));
         assert_eq!(kb.fullscreen.0, KeyCode::Char('z'));
+    }
+
+    #[test]
+    fn sound_table_config_parses() {
+        let toml = r#"
+[ui.sound]
+enabled = true
+
+[ui.sound.agents]
+droid = "off"
+claude = "on"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.sound.enabled);
+        assert_eq!(config.ui.sound.agents.droid, AgentSoundSetting::Off);
+        assert_eq!(config.ui.sound.agents.claude, AgentSoundSetting::On);
+        assert_eq!(config.ui.sound.agents.pi, AgentSoundSetting::Default);
     }
 }

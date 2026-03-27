@@ -79,7 +79,11 @@ fn foreground_pgid(pid: u32) -> Option<u32> {
     }
 
     let fg = info.e_tpgid;
-    if fg == 0 { None } else { Some(fg) }
+    if fg == 0 {
+        None
+    } else {
+        Some(fg)
+    }
 }
 
 /// Get the effective process name from `argv[0]` via `sysctl(KERN_PROCARGS2)`.
@@ -122,9 +126,7 @@ fn process_argv0_name(pid: u32) -> Option<String> {
     }
 
     // Return basename (argv[0] may be a full path like "/usr/bin/node")
-    let basename = Path::new(argv0)
-        .file_name()?
-        .to_str()?;
+    let basename = Path::new(argv0).file_name()?.to_str()?;
 
     // Strip leading dash (login shells show as "-zsh")
     let name = basename.strip_prefix('-').unwrap_or(basename);

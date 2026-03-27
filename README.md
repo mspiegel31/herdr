@@ -165,9 +165,16 @@ accent = "cyan"
 # ask for confirmation before closing a workspace
 confirm_close = true
 
+[ui.sound]
 # play sounds when agents change state in background workspaces
 # a chime when an agent finishes, an alert when one needs input
-sound = true
+enabled = true
+
+[ui.sound.agents]
+# per-agent override: default | on | off
+# droid is muted by default
+claude = "default"
+droid = "off"
 ```
 
 ### environment variables

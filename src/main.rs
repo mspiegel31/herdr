@@ -49,8 +49,8 @@ fn init_logging() {
         Err(_) => return, // can't open log file, proceed without logging
     };
 
-    let filter = EnvFilter::try_from_env("HERDR_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("herdr=info"));
+    let filter =
+        EnvFilter::try_from_env("HERDR_LOG").unwrap_or_else(|_| EnvFilter::new("herdr=info"));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -85,7 +85,13 @@ const DEFAULT_CONFIG: &str = r#"# herdr configuration
 # accent = "cyan"
 
 # Play sounds when agents change state in background workspaces
-# sound = true
+[ui.sound]
+# enabled = true
+
+# Per-agent overrides: default | on | off
+# By default, droid is muted.
+# [ui.sound.agents]
+# droid = "off"
 "#;
 
 fn main() -> io::Result<()> {
@@ -134,7 +140,14 @@ fn main() -> io::Result<()> {
     }
 
     // Reject unknown flags
-    let known_flags = ["--no-session", "--version", "-V", "--default-config", "--help", "-h"];
+    let known_flags = [
+        "--no-session",
+        "--version",
+        "-V",
+        "--default-config",
+        "--help",
+        "-h",
+    ];
     for arg in &args[1..] {
         if arg.starts_with('-') && !known_flags.contains(&arg.as_str()) {
             eprintln!("unknown option: {arg}");

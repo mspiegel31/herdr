@@ -248,6 +248,4 @@ mod tests {
         assert_eq!(row, 0);
         assert_eq!(col, 0);
     }
-
-
 }

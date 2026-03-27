@@ -10,9 +10,7 @@ use crate::layout::PaneId;
 #[derive(Debug)]
 pub enum AppEvent {
     /// A pane's child process exited.
-    PaneDied {
-        pane_id: PaneId,
-    },
+    PaneDied { pane_id: PaneId },
     /// Agent state changed in a pane (detected by the PTY reader).
     StateChanged {
         pane_id: PaneId,
@@ -20,7 +18,5 @@ pub enum AppEvent {
         state: AgentState,
     },
     /// A new version was downloaded and installed. Restart to use it.
-    UpdateReady {
-        version: String,
-    },
+    UpdateReady { version: String },
 }

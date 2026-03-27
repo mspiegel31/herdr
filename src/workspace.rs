@@ -58,9 +58,8 @@ impl Workspace {
         cwd: Option<std::path::PathBuf>,
     ) -> std::io::Result<PaneId> {
         let new_id = self.layout.split_focused(direction);
-        let actual_cwd = cwd.unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| "/".into())
-        });
+        let actual_cwd =
+            cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
         let runtime = PaneRuntime::spawn(new_id, rows, cols, actual_cwd, self.events.clone())?;
         self.panes.insert(new_id, PaneState::new());
         self.runtimes.insert(new_id, runtime);

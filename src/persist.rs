@@ -83,7 +83,9 @@ pub fn capture(
 fn capture_workspace(ws: &Workspace) -> WorkspaceSnapshot {
     let mut panes = HashMap::new();
     for id in ws.panes.keys() {
-        let cwd = ws.runtimes.get(id)
+        let cwd = ws
+            .runtimes
+            .get(id)
             .and_then(|rt| rt.cwd())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
         panes.insert(id.raw(), PaneSnapshot { cwd });
@@ -153,7 +155,10 @@ fn restore_workspace(
     let mut panes = HashMap::new();
     let mut runtimes = HashMap::new();
     for id in &pane_ids {
-        let old_id = id_map.iter().find(|(_, new)| **new == *id).map(|(old, _)| old);
+        let old_id = id_map
+            .iter()
+            .find(|(_, new)| **new == *id)
+            .map(|(old, _)| old);
         let cwd = old_id
             .and_then(|old| snap.panes.get(old))
             .map(|p| p.cwd.clone())

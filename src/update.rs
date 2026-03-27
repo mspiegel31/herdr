@@ -84,9 +84,12 @@ fn check_latest() -> Result<Option<ReleaseInfo>, String> {
     let output = Command::new("curl")
         .args([
             "-sfL",
-            "--max-time", "10",
-            "-H", "Accept: application/vnd.github+json",
-            "-H", "User-Agent: herdr-updater",
+            "--max-time",
+            "10",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-H",
+            "User-Agent: herdr-updater",
             &url,
         ])
         .output()
@@ -129,12 +132,9 @@ fn check_latest() -> Result<Option<ReleaseInfo>, String> {
 
 /// Download and install a release. Returns the installed version.
 fn download_and_install(release: &ReleaseInfo) -> Result<(), String> {
-    let current_exe = env::current_exe()
-        .map_err(|e| format!("can't find current binary: {e}"))?;
+    let current_exe = env::current_exe().map_err(|e| format!("can't find current binary: {e}"))?;
 
-    let parent = current_exe
-        .parent()
-        .ok_or("can't find binary directory")?;
+    let parent = current_exe.parent().ok_or("can't find binary directory")?;
 
     // Check write permissions early
     let test_path = parent.join(".herdr-write-test");
@@ -149,10 +149,7 @@ fn download_and_install(release: &ReleaseInfo) -> Result<(), String> {
     let _ = fs::remove_file(&test_path);
 
     // Unique temp file (avoids races with concurrent instances)
-    let tmp_path = parent.join(format!(
-        ".herdr-update-{}.tmp",
-        std::process::id()
-    ));
+    let tmp_path = parent.join(format!(".herdr-update-{}.tmp", std::process::id()));
 
     // Download the exact asset URL (pinned to the release we checked)
     let status = Command::new("curl")
@@ -232,7 +229,10 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
         return;
     }
 
-    tracing::info!("auto-update: v{} installed, restart to use", release.version);
+    tracing::info!(
+        "auto-update: v{} installed, restart to use",
+        release.version
+    );
 
     // Notify the TUI — blocking_send is safe from a std::thread
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
@@ -276,7 +276,11 @@ mod tests {
     fn parse_version_basic() {
         assert_eq!(
             Version::parse("1.2.3"),
-            Some(Version { major: 1, minor: 2, patch: 3 })
+            Some(Version {
+                major: 1,
+                minor: 2,
+                patch: 3
+            })
         );
     }
 
@@ -284,7 +288,11 @@ mod tests {
     fn parse_version_with_v_prefix() {
         assert_eq!(
             Version::parse("v0.1.0"),
-            Some(Version { major: 0, minor: 1, patch: 0 })
+            Some(Version {
+                major: 0,
+                minor: 1,
+                patch: 0
+            })
         );
     }
 
@@ -310,7 +318,11 @@ mod tests {
 
     #[test]
     fn version_display() {
-        let v = Version { major: 0, minor: 1, patch: 0 };
+        let v = Version {
+            major: 0,
+            minor: 1,
+            patch: 0,
+        };
         assert_eq!(v.to_string(), "0.1.0");
     }
 

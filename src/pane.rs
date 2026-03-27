@@ -1,5 +1,5 @@
-use std::io::{BufWriter, Read, Write};
 use std::cell::Cell;
+use std::io::{BufWriter, Read, Write};
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, RwLock,
@@ -91,7 +91,10 @@ impl PaneRuntime {
         let responses = PtyResponses::new();
         let kitty_keyboard = responses.kitty_keyboard.clone();
         let parser = Arc::new(RwLock::new(vt100::Parser::new_with_callbacks(
-            rows, cols, 10000, responses.clone(),
+            rows,
+            cols,
+            10000,
+            responses.clone(),
         )));
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());

@@ -193,12 +193,17 @@ impl TileLayout {
             .filter(|s| match target_dir {
                 Direction::Horizontal => {
                     // Border must be near the focused pane's left or right edge
-                    let near_right = (s.pos as i32 - (focused_rect.x + focused_rect.width) as i32).unsigned_abs() <= 1;
+                    let near_right = (s.pos as i32 - (focused_rect.x + focused_rect.width) as i32)
+                        .unsigned_abs()
+                        <= 1;
                     let near_left = (s.pos as i32 - focused_rect.x as i32).unsigned_abs() <= 1;
                     near_right || near_left
                 }
                 Direction::Vertical => {
-                    let near_bottom = (s.pos as i32 - (focused_rect.y + focused_rect.height) as i32).unsigned_abs() <= 1;
+                    let near_bottom = (s.pos as i32
+                        - (focused_rect.y + focused_rect.height) as i32)
+                        .unsigned_abs()
+                        <= 1;
                     let near_top = (s.pos as i32 - focused_rect.y as i32).unsigned_abs() <= 1;
                     near_bottom || near_top
                 }
@@ -212,9 +217,9 @@ impl TileLayout {
                     (Direction::Horizontal, false) => {
                         (focused_rect.x as i32 - s.pos as i32).unsigned_abs()
                     }
-                    (Direction::Vertical, true) => {
-                        ((focused_rect.y + focused_rect.height) as i32 - s.pos as i32).unsigned_abs()
-                    }
+                    (Direction::Vertical, true) => ((focused_rect.y + focused_rect.height) as i32
+                        - s.pos as i32)
+                        .unsigned_abs(),
                     (Direction::Vertical, false) => {
                         (focused_rect.y as i32 - s.pos as i32).unsigned_abs()
                     }

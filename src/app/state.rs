@@ -1,5 +1,5 @@
+use crate::config::{Keybinds, SoundConfig};
 use crossterm::event::{KeyCode, KeyModifiers};
-use crate::config::Keybinds;
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
 
@@ -69,7 +69,7 @@ pub struct AppState {
     pub sidebar_collapsed: bool,
     pub confirm_close: bool,
     pub accent: Color,
-    pub sound: bool,
+    pub sound: SoundConfig,
     pub keybinds: Keybinds,
 }
 
@@ -120,7 +120,10 @@ impl AppState {
             sidebar_collapsed: false,
             confirm_close: true,
             accent: Color::Cyan,
-            sound: true,
+            sound: SoundConfig {
+                enabled: false,
+                ..SoundConfig::default()
+            },
             keybinds: Keybinds {
                 split_vertical: (KeyCode::Char('v'), KeyModifiers::empty()),
                 split_horizontal: (KeyCode::Char('-'), KeyModifiers::empty()),

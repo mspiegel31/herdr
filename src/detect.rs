@@ -269,9 +269,7 @@ fn detect_cline(content: &str) -> AgentState {
         return AgentState::Waiting;
     }
     // [act mode] or [plan mode] followed by "yes"
-    if (lower.contains("[act mode]") || lower.contains("[plan mode]"))
-        && lower.contains("yes")
-    {
+    if (lower.contains("[act mode]") || lower.contains("[plan mode]")) && lower.contains("yes") {
         return AgentState::Waiting;
     }
 
@@ -440,9 +438,7 @@ fn has_selection_prompt(content: &str) -> bool {
         let trimmed = line.trim();
         if trimmed.starts_with('❯') {
             // Check if there's a digit followed by a dot nearby
-            if trimmed.chars().any(|c| c.is_ascii_digit())
-                && trimmed.contains('.')
-            {
+            if trimmed.chars().any(|c| c.is_ascii_digit()) && trimmed.contains('.') {
                 return true;
             }
         }
@@ -481,9 +477,7 @@ fn has_spinner_activity(content: &str) -> bool {
 fn has_cursor_spinner(content: &str) -> bool {
     for line in content.lines() {
         let trimmed = line.trim();
-        if (trimmed.starts_with('⬡') || trimmed.starts_with('⬢'))
-            && trimmed.contains("ing")
-        {
+        if (trimmed.starts_with('⬡') || trimmed.starts_with('⬢')) && trimmed.contains("ing") {
             return true;
         }
     }
@@ -525,7 +519,11 @@ pub fn foreground_job(child_pid: u32) -> Option<crate::platform::ForegroundJob> 
 fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> String {
     let effective = process.argv0.as_deref().unwrap_or(&process.name);
     let lower_effective = effective.to_lowercase();
-    let lower_cmdline = process.cmdline.as_deref().unwrap_or_default().to_lowercase();
+    let lower_cmdline = process
+        .cmdline
+        .as_deref()
+        .unwrap_or_default()
+        .to_lowercase();
 
     if lower_effective == "node"
         && (lower_cmdline.contains("/codex") || lower_cmdline.contains("@openai/codex"))
@@ -613,7 +611,10 @@ mod tests {
             ],
         };
 
-        assert_eq!(identify_agent_in_job(&job), Some((Agent::Codex, "codex".to_string())));
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Codex, "codex".to_string()))
+        );
     }
 
     // ---- Workspace state rollup ----
@@ -651,10 +652,7 @@ mod tests {
 
     #[test]
     fn pi_busy_working_in_middle() {
-        assert_eq!(
-            detect_pi("line1\nWorking...\nline3"),
-            AgentState::Busy
-        );
+        assert_eq!(detect_pi("line1\nWorking...\nline3"), AgentState::Busy);
     }
 
     #[test]
@@ -664,10 +662,7 @@ mod tests {
 
     #[test]
     fn pi_idle_no_working_text() {
-        assert_eq!(
-            detect_pi("some output\n\n> ready"),
-            AgentState::Idle
-        );
+        assert_eq!(detect_pi("some output\n\n> ready"), AgentState::Idle);
     }
 
     // ---- Claude Code ----
@@ -751,10 +746,7 @@ mod tests {
 
     #[test]
     fn codex_waiting_allow_command() {
-        assert_eq!(
-            detect_codex("allow command?\n[y/n]"),
-            AgentState::Waiting
-        );
+        assert_eq!(detect_codex("allow command?\n[y/n]"), AgentState::Waiting);
     }
 
     #[test]
@@ -829,18 +821,12 @@ mod tests {
 
     #[test]
     fn cursor_waiting_allow() {
-        assert_eq!(
-            detect_cursor("allow file edit (y)"),
-            AgentState::Waiting
-        );
+        assert_eq!(detect_cursor("allow file edit (y)"), AgentState::Waiting);
     }
 
     #[test]
     fn cursor_busy_spinner() {
-        assert_eq!(
-            detect_cursor("⬡ Grepping.."),
-            AgentState::Busy
-        );
+        assert_eq!(detect_cursor("⬡ Grepping.."), AgentState::Busy);
     }
 
     #[test]
@@ -860,10 +846,7 @@ mod tests {
 
     #[test]
     fn cline_waiting_tool_use() {
-        assert_eq!(
-            detect_cline("let cline use this tool"),
-            AgentState::Waiting
-        );
+        assert_eq!(detect_cline("let cline use this tool"), AgentState::Waiting);
     }
 
     #[test]
@@ -1014,13 +997,15 @@ mod tests {
 
     #[test]
     fn droid_idle_prompt() {
-        let screen = "╭──────────────────╮\n│ > Try something   │\n╰──────────────────╯\n? for help";
+        let screen =
+            "╭──────────────────╮\n│ > Try something   │\n╰──────────────────╯\n? for help";
         assert_eq!(detect_droid(screen), AgentState::Idle);
     }
 
     #[test]
     fn droid_idle_after_response() {
-        let screen = "⛬  Doing well, thanks!\n\nAuto (Off)\n╭──────────╮\n│ >        │\n╰──────────╯";
+        let screen =
+            "⛬  Doing well, thanks!\n\nAuto (Off)\n╭──────────╮\n│ >        │\n╰──────────╯";
         assert_eq!(detect_droid(screen), AgentState::Idle);
     }
 
@@ -1134,8 +1119,15 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         let job = foreground_job(pid).expect("expected foreground job");
-        assert!(job.processes.iter().any(|p| p.name == "sleep"), "expected sleep in {job:?}");
-        assert_eq!(identify_agent_in_job(&job), None, "sleep should not map to an agent");
+        assert!(
+            job.processes.iter().any(|p| p.name == "sleep"),
+            "expected sleep in {job:?}"
+        );
+        assert_eq!(
+            identify_agent_in_job(&job),
+            None,
+            "sleep should not map to an agent"
+        );
 
         // Clean up
         child.kill().ok();
@@ -1172,8 +1164,15 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         let job = foreground_job(pid).expect("expected foreground job");
-        assert!(job.processes.iter().any(|p| p.name == "sleep"), "expected sleep in {job:?}");
-        assert_eq!(identify_agent_in_job(&job), None, "sleep should not map to an agent");
+        assert!(
+            job.processes.iter().any(|p| p.name == "sleep"),
+            "expected sleep in {job:?}"
+        );
+        assert_eq!(
+            identify_agent_in_job(&job),
+            None,
+            "sleep should not map to an agent"
+        );
 
         child.kill().ok();
         child.wait().ok();
@@ -1193,7 +1192,11 @@ mod tests {
         let fields: Vec<&str> = rest.split_whitespace().collect();
 
         // We should have enough fields (at least 6 for tpgid)
-        assert!(fields.len() >= 6, "not enough fields in stat: {}", fields.len());
+        assert!(
+            fields.len() >= 6,
+            "not enough fields in stat: {}",
+            fields.len()
+        );
 
         // Field 0 should be a valid state char (S, R, D, etc.)
         let state = fields[0];

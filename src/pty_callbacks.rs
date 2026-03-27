@@ -135,7 +135,8 @@ impl vt100::Callbacks for PtyResponses {
                         break;
                     }
                 }
-                self.kitty_keyboard.store(!stack.is_empty(), Ordering::Relaxed);
+                self.kitty_keyboard
+                    .store(!stack.is_empty(), Ordering::Relaxed);
             }
 
             // === Terminal Identification ===
@@ -150,11 +151,7 @@ impl vt100::Callbacks for PtyResponses {
         }
     }
 
-    fn unhandled_osc(
-        &mut self,
-        _screen: &mut vt100::Screen,
-        params: &[&[u8]],
-    ) {
+    fn unhandled_osc(&mut self, _screen: &mut vt100::Screen, params: &[&[u8]]) {
         let Some(cmd) = params.first() else { return };
 
         match *cmd {
@@ -237,7 +234,7 @@ mod tests {
         let r = PtyResponses::new();
         let mut p = make_parser(r.clone());
         p.process(b"\x1b[3;7H"); // move cursor
-        p.process(b"\x1b[?6n");  // extended CPR
+        p.process(b"\x1b[?6n"); // extended CPR
         assert_eq!(r.take(), b"\x1b[?3;7R");
     }
 

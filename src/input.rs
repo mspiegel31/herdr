@@ -36,9 +36,17 @@ fn try_encode_csi_u(key: &KeyEvent) -> Option<Vec<u8>> {
     // understood. Even Ghostty sends these in legacy format with kitty mode on.
     // Only use CSI u for character keys and keys without legacy representations.
     match key.code {
-        KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right
-        | KeyCode::Home | KeyCode::End | KeyCode::PageUp | KeyCode::PageDown
-        | KeyCode::Insert | KeyCode::Delete | KeyCode::F(_) => {
+        KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::Left
+        | KeyCode::Right
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::PageUp
+        | KeyCode::PageDown
+        | KeyCode::Insert
+        | KeyCode::Delete
+        | KeyCode::F(_) => {
             return None; // let legacy handle these
         }
         _ => {}
@@ -262,10 +270,7 @@ mod tests {
 
     #[test]
     fn legacy_ctrl_shift_end() {
-        let key = KeyEvent::new(
-            KeyCode::End,
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-        );
+        let key = KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         assert_eq!(encode_key(key, false), b"\x1b[1;6F");
     }
 
@@ -330,10 +335,7 @@ mod tests {
 
     #[test]
     fn kitty_ctrl_shift_enter() {
-        let key = KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
-        );
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         assert_eq!(encode_key(key, true), b"\x1b[13;6u");
     }
 }

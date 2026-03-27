@@ -40,9 +40,10 @@ fn play_bytes(data: &[u8]) -> Result<(), String> {
         Command::new("afplay").arg(&tmp).output()
     } else {
         // Try paplay (PulseAudio) first, fall back to aplay (ALSA)
-        Command::new("paplay").arg(&tmp).output().or_else(|_| {
-            Command::new("aplay").arg(&tmp).output()
-        })
+        Command::new("paplay")
+            .arg(&tmp)
+            .output()
+            .or_else(|_| Command::new("aplay").arg(&tmp).output())
     };
 
     let _ = std::fs::remove_file(&tmp);

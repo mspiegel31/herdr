@@ -62,7 +62,8 @@ impl AppState {
     pub fn resize_pane(&mut self, direction: NavDirection) {
         if let Some(first) = self.view.pane_infos.first() {
             let area = self
-                .view.pane_infos
+                .view
+                .pane_infos
                 .iter()
                 .fold(first.rect, |acc, p| acc.union(p.rect));
             if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
@@ -168,7 +169,7 @@ impl AppState {
                         }
 
                         // Sound notifications for background state changes
-                        if self.sound && !is_active_ws && state != prev_state {
+                        if self.sound.allows(agent) && !is_active_ws && state != prev_state {
                             match state {
                                 AgentState::Idle if prev_state != AgentState::Idle => {
                                     crate::sound::play(crate::sound::Sound::Done);
@@ -390,7 +391,11 @@ mod tests {
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
 
         // First set it to Busy
-        state.workspaces[1].panes.get_mut(&bg_pane_id).unwrap().state = AgentState::Busy;
+        state.workspaces[1]
+            .panes
+            .get_mut(&bg_pane_id)
+            .unwrap()
+            .state = AgentState::Busy;
 
         // Now transition to Idle while in background
         state.handle_app_event(AppEvent::StateChanged {
