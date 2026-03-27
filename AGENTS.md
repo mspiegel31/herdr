@@ -29,3 +29,7 @@ Integration tests are markdown specs in `tests/integration/specs/`. A pi agent e
 - Rust: no `unwrap()` in production code. `tracing` for logging. `#[allow]` only with a comment explaining why.
 - Don't bypass checks. If tests fail, fix them before committing.
 - Don't add dependencies without a reason. Check if the existing deps cover it first.
+
+## Releases
+
+`just release 0.x.y` — bumps Cargo.toml, runs tests, commits, tags, pushes. GitHub Actions builds binaries.

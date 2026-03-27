@@ -456,6 +456,7 @@ dependencies = [
  "base64",
  "bytes",
  "crossterm",
+ "libc",
  "portable-pty",
  "ratatui",
  "serde",
