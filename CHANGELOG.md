@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.1] - 2026-03-28
+
 ### Added
 - Added optional sound notifications for agent state changes, including a completion chime when background work finishes and an alert when an agent needs input.
 - Added per-agent sound overrides under `[ui.sound.agents]`, so you can mute or enable notifications by agent instead of using one global setting. Droid notifications are muted by default.
