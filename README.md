@@ -92,9 +92,9 @@ herdr
 
 herdr starts in **navigate mode**. press `n` to create your first workspace, type a name, press enter. you're in **terminal mode** with a shell ready.
 
-press `ctrl+s` (the prefix key) to switch back to navigate mode. from there you can manage workspaces and panes.
+press `ctrl+b` (the prefix key) to switch back to navigate mode. from there you can manage workspaces and panes.
 
-### navigate mode (prefix: ctrl+s)
+### navigate mode (prefix: ctrl+b)
 
 | key | action | configurable |
 |-----|--------|:---:|
@@ -116,6 +116,8 @@ press `ctrl+s` (the prefix key) to switch back to navigate mode. from there you 
 
 keys marked ✓ can be changed in `~/.config/herdr/config.toml` under `[keys]`. the prefix key is also configurable.
 
+keybindings use strings like `ctrl+b`, `f12`, `esc`, `tab`, `-`, or `shift+x`. the most reliable bindings are plain keys, `ctrl+letter`, `esc`/`tab`/`enter`, and function keys. `alt+...` and punctuation-with-modifiers may vary depending on your terminal and tmux setup.
+
 ### resize mode
 
 | key | action |
@@ -129,13 +131,16 @@ keys marked ✓ can be changed in `~/.config/herdr/config.toml` under `[keys]`. 
 - click a workspace in the sidebar to switch
 - click a pane to focus it
 - drag split borders to resize
+- drag in a pane to select text; release to copy it to your system clipboard
 - right-click a workspace for context menu
 - scroll in sidebar to navigate workspaces
 - click `«` / `»` at the sidebar bottom to collapse/expand
 
+text copy uses OSC 52, so it depends on your terminal's clipboard support.
+
 ### terminal mode
 
-you're in a real terminal. everything works — your shell, vim, htop, ssh, anything. press the prefix key (`ctrl+s`) to go back to navigate mode.
+you're in a real terminal. everything works — your shell, vim, htop, ssh, anything. press the prefix key (`ctrl+b`) to go back to navigate mode.
 
 ## configuration
 
@@ -150,7 +155,7 @@ herdr --default-config
 ```toml
 [keys]
 # prefix key to enter navigate mode
-prefix = "ctrl+s"
+prefix = "ctrl+b"
 
 # pane controls (in navigate mode)
 split_vertical = "v"

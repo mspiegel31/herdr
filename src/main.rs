@@ -64,8 +64,12 @@ const DEFAULT_CONFIG: &str = r#"# herdr configuration
 # Place this file at ~/.config/herdr/config.toml
 
 [keys]
-# Prefix key to enter navigate mode (e.g. "ctrl+s", "ctrl+a", "ctrl+b")
-# prefix = "ctrl+s"
+# Prefix key to enter navigate mode (default: "ctrl+b")
+# Examples: "ctrl+b", "f12", "esc", "-"
+# Accepted syntax: plain keys, ctrl/shift/alt modifiers, and special keys like enter/tab/esc
+# Most reliable bindings are plain keys, ctrl+letter, esc/tab/enter, and function keys.
+# alt+... and punctuation-with-modifiers may depend on your terminal/tmux setup.
+# prefix = "ctrl+b"
 
 # Pane controls (in navigate mode)
 # split_vertical = "v"

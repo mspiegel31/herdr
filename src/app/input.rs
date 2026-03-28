@@ -8,7 +8,7 @@ use tracing::warn;
 use crate::layout::{NavDirection, PaneInfo, SplitBorder};
 use crate::selection::Selection;
 
-use super::state::{AppState, ContextMenuState, DragState, Mode, CONTEXT_MENU_ITEMS};
+use super::state::{key_matches, AppState, ContextMenuState, DragState, Mode, CONTEXT_MENU_ITEMS};
 use super::App;
 
 // ---------------------------------------------------------------------------
@@ -86,19 +86,19 @@ fn handle_navigate_key(state: &mut AppState, key: KeyEvent) {
 
     // Configurable keybinds (checked before fixed binds)
     let kb = &state.keybinds;
-    if key.code == kb.split_vertical.0 && key.modifiers.contains(kb.split_vertical.1) {
+    if key_matches(&key, kb.split_vertical.0, kb.split_vertical.1) {
         state.split_pane(Direction::Horizontal);
         return;
     }
-    if key.code == kb.split_horizontal.0 && key.modifiers.contains(kb.split_horizontal.1) {
+    if key_matches(&key, kb.split_horizontal.0, kb.split_horizontal.1) {
         state.split_pane(Direction::Vertical);
         return;
     }
-    if key.code == kb.close_pane.0 && key.modifiers.contains(kb.close_pane.1) {
+    if key_matches(&key, kb.close_pane.0, kb.close_pane.1) {
         state.close_pane();
         return;
     }
-    if key.code == kb.fullscreen.0 && key.modifiers.contains(kb.fullscreen.1) {
+    if key_matches(&key, kb.fullscreen.0, kb.fullscreen.1) {
         state.toggle_fullscreen();
         return;
     }

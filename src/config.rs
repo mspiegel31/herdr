@@ -16,7 +16,7 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct KeysConfig {
-    /// Prefix key to toggle navigate mode (e.g. "ctrl+s", "ctrl+a", "ctrl+b").
+    /// Prefix key to toggle navigate mode (e.g. "ctrl+b", "f12", "esc").
     pub prefix: String,
     /// Split pane vertically (side by side). Default: "v"
     pub split_vertical: String,
@@ -105,7 +105,7 @@ impl AgentSoundOverrides {
 impl Default for KeysConfig {
     fn default() -> Self {
         Self {
-            prefix: "ctrl+s".into(),
+            prefix: "ctrl+b".into(),
             split_vertical: "v".into(),
             split_horizontal: "-".into(),
             close_pane: "x".into(),
@@ -168,21 +168,45 @@ impl Config {
     }
 
     pub fn prefix_key(&self) -> (KeyCode, KeyModifiers) {
-        parse_key_combo(&self.keys.prefix)
+        parse_key_combo_or_warn(
+            &self.keys.prefix,
+            "keys.prefix",
+            (KeyCode::Char('b'), KeyModifiers::CONTROL),
+        )
     }
 
     /// Human-readable label for the prefix key (shown in status bar).
     pub fn prefix_label(&self) -> String {
-        self.keys.prefix.clone()
+        if parse_key_combo(&self.keys.prefix).is_some() {
+            self.keys.prefix.clone()
+        } else {
+            "ctrl+b".into()
+        }
     }
 
     /// Parsed keybinds for navigate mode actions.
     pub fn keybinds(&self) -> Keybinds {
         Keybinds {
-            split_vertical: parse_key_combo(&self.keys.split_vertical),
-            split_horizontal: parse_key_combo(&self.keys.split_horizontal),
-            close_pane: parse_key_combo(&self.keys.close_pane),
-            fullscreen: parse_key_combo(&self.keys.fullscreen),
+            split_vertical: parse_key_combo_or_warn(
+                &self.keys.split_vertical,
+                "keys.split_vertical",
+                (KeyCode::Char('v'), KeyModifiers::empty()),
+            ),
+            split_horizontal: parse_key_combo_or_warn(
+                &self.keys.split_horizontal,
+                "keys.split_horizontal",
+                (KeyCode::Char('-'), KeyModifiers::empty()),
+            ),
+            close_pane: parse_key_combo_or_warn(
+                &self.keys.close_pane,
+                "keys.close_pane",
+                (KeyCode::Char('x'), KeyModifiers::empty()),
+            ),
+            fullscreen: parse_key_combo_or_warn(
+                &self.keys.fullscreen,
+                "keys.fullscreen",
+                (KeyCode::Char('f'), KeyModifiers::empty()),
+            ),
         }
     }
 }
@@ -272,19 +296,28 @@ fn config_path() -> PathBuf {
     }
 }
 
-fn parse_key_combo(s: &str) -> (KeyCode, KeyModifiers) {
+fn parse_key_combo(s: &str) -> Option<(KeyCode, KeyModifiers)> {
     let parts: Vec<&str> = s.split('+').collect();
     let mut modifiers = KeyModifiers::empty();
-    let mut key_str = "";
+    let mut key_str: Option<&str> = None;
 
     for part in &parts {
-        match part.trim().to_lowercase().as_str() {
+        let trimmed = part.trim();
+        match trimmed.to_lowercase().as_str() {
             "ctrl" | "control" => modifiers |= KeyModifiers::CONTROL,
             "shift" => modifiers |= KeyModifiers::SHIFT,
             "alt" | "meta" => modifiers |= KeyModifiers::ALT,
-            _ => key_str = part.trim(),
+            _ if trimmed.is_empty() => return None,
+            _ => {
+                if key_str.is_some() {
+                    return None;
+                }
+                key_str = Some(trimmed);
+            }
         }
     }
+
+    let key_str = key_str?;
 
     let code = match key_str.to_lowercase().as_str() {
         "space" | " " => KeyCode::Char(' '),
@@ -292,15 +325,23 @@ fn parse_key_combo(s: &str) -> (KeyCode, KeyModifiers) {
         "esc" | "escape" => KeyCode::Esc,
         "tab" => KeyCode::Tab,
         "backspace" | "bs" => KeyCode::Backspace,
-        s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
-        s if s.starts_with('f') => s[1..]
-            .parse::<u8>()
-            .map(KeyCode::F)
-            .unwrap_or(KeyCode::Char('s')),
-        _ => KeyCode::Char('s'),
+        s if s.len() == 1 => KeyCode::Char(key_str.chars().next().unwrap()),
+        s if s.starts_with('f') => s[1..].parse::<u8>().ok().map(KeyCode::F)?,
+        _ => return None,
     };
 
-    (code, modifiers)
+    Some((code, modifiers))
+}
+
+fn parse_key_combo_or_warn(
+    s: &str,
+    field: &str,
+    fallback: (KeyCode, KeyModifiers),
+) -> (KeyCode, KeyModifiers) {
+    parse_key_combo(s).unwrap_or_else(|| {
+        warn!(field, value = s, "invalid keybinding, using fallback");
+        fallback
+    })
 }
 
 #[cfg(test)]
@@ -312,15 +353,15 @@ mod tests {
     fn parse_simple_char() {
         assert_eq!(
             parse_key_combo("v"),
-            (KeyCode::Char('v'), KeyModifiers::empty())
+            Some((KeyCode::Char('v'), KeyModifiers::empty()))
         );
     }
 
     #[test]
     fn parse_ctrl_combo() {
         assert_eq!(
-            parse_key_combo("ctrl+s"),
-            (KeyCode::Char('s'), KeyModifiers::CONTROL)
+            parse_key_combo("ctrl+b"),
+            Some((KeyCode::Char('b'), KeyModifiers::CONTROL))
         );
     }
 
@@ -328,15 +369,15 @@ mod tests {
     fn parse_special_key() {
         assert_eq!(
             parse_key_combo("enter"),
-            (KeyCode::Enter, KeyModifiers::empty())
+            Some((KeyCode::Enter, KeyModifiers::empty()))
         );
         assert_eq!(
             parse_key_combo("tab"),
-            (KeyCode::Tab, KeyModifiers::empty())
+            Some((KeyCode::Tab, KeyModifiers::empty()))
         );
         assert_eq!(
             parse_key_combo("esc"),
-            (KeyCode::Esc, KeyModifiers::empty())
+            Some((KeyCode::Esc, KeyModifiers::empty()))
         );
     }
 
@@ -344,10 +385,10 @@ mod tests {
     fn parse_ctrl_shift() {
         assert_eq!(
             parse_key_combo("ctrl+shift+a"),
-            (
+            Some((
                 KeyCode::Char('a'),
                 KeyModifiers::CONTROL | KeyModifiers::SHIFT
-            )
+            ))
         );
     }
 
@@ -355,8 +396,22 @@ mod tests {
     fn parse_f_key() {
         assert_eq!(
             parse_key_combo("f5"),
-            (KeyCode::F(5), KeyModifiers::empty())
+            Some((KeyCode::F(5), KeyModifiers::empty()))
         );
+    }
+
+    #[test]
+    fn parse_punctuation_key() {
+        assert_eq!(
+            parse_key_combo("ctrl+`"),
+            Some((KeyCode::Char('`'), KeyModifiers::CONTROL))
+        );
+    }
+
+    #[test]
+    fn invalid_keybinding_is_rejected() {
+        assert_eq!(parse_key_combo("ctrl+foo+bar"), None);
+        assert_eq!(parse_key_combo("ctrl+"), None);
     }
 
     #[test]

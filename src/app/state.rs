@@ -75,7 +75,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn is_prefix(&self, key: &crossterm::event::KeyEvent) -> bool {
-        key.code == self.prefix_code && key.modifiers.contains(self.prefix_mods)
+        key_matches(key, self.prefix_code, self.prefix_mods)
     }
 
     pub fn estimate_pane_size(&self) -> (u16, u16) {
@@ -84,6 +84,25 @@ impl AppState {
         } else {
             (24, 80)
         }
+    }
+}
+
+pub fn key_matches(
+    key: &crossterm::event::KeyEvent,
+    expected_code: KeyCode,
+    expected_mods: KeyModifiers,
+) -> bool {
+    if key.modifiers != expected_mods {
+        return false;
+    }
+
+    match (key.code, expected_code) {
+        (KeyCode::Char(actual), KeyCode::Char(expected))
+            if actual.is_ascii_alphabetic() && expected.is_ascii_alphabetic() =>
+        {
+            actual.eq_ignore_ascii_case(&expected)
+        }
+        (actual, expected) => actual == expected,
     }
 }
 
@@ -113,9 +132,9 @@ impl AppState {
             context_menu: None,
             update_available: None,
             update_dismissed: false,
-            prefix_code: KeyCode::Char('s'),
+            prefix_code: KeyCode::Char('b'),
             prefix_mods: KeyModifiers::CONTROL,
-            prefix_label: "ctrl+s".into(),
+            prefix_label: "ctrl+b".into(),
             sidebar_width: 26,
             sidebar_collapsed: false,
             confirm_close: true,
@@ -131,5 +150,38 @@ impl AppState {
                 fullscreen: (KeyCode::Char('f'), KeyModifiers::empty()),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEvent;
+
+    #[test]
+    fn key_matches_requires_exact_modifiers() {
+        assert!(key_matches(
+            &KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ));
+
+        assert!(!key_matches(
+            &KeyEvent::new(
+                KeyCode::Char('b'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ));
+    }
+
+    #[test]
+    fn key_matches_letters_case_insensitively() {
+        assert!(key_matches(
+            &KeyEvent::new(KeyCode::Char('B'), KeyModifiers::SHIFT),
+            KeyCode::Char('b'),
+            KeyModifiers::SHIFT,
+        ));
     }
 }
