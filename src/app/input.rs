@@ -910,6 +910,20 @@ impl AppState {
                         });
                         return None;
                     }
+
+                    if let Some((pane_id, offset_from_bottom)) =
+                        self.scrollbar_target_at(mouse.column, mouse.row)
+                    {
+                        self.focus_pane(pane_id);
+                        self.set_pane_scroll_offset(pane_id, offset_from_bottom);
+                        self.drag = Some(DragState {
+                            target: DragTarget::PaneScrollbar { pane_id },
+                        });
+                        if self.mode != Mode::Terminal {
+                            self.mode = Mode::Terminal;
+                        }
+                        return None;
+                    }
                 }
 
                 if in_sidebar {
@@ -993,6 +1007,13 @@ impl AppState {
                                 ws.layout.set_ratio_at(&path, ratio);
                             }
                         }
+                        DragTarget::PaneScrollbar { pane_id } => {
+                            if let Some(offset_from_bottom) =
+                                self.scrollbar_offset_for_pane_row(*pane_id, mouse.row)
+                            {
+                                self.set_pane_scroll_offset(*pane_id, offset_from_bottom);
+                            }
+                        }
                         DragTarget::SidebarDivider => {
                             self.sidebar_width_auto = false;
                             self.set_manual_sidebar_width(mouse.column);
@@ -1017,7 +1038,13 @@ impl AppState {
 
             MouseEventKind::ScrollUp if !in_sidebar => {
                 self.selection = None;
-                if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
+                if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
+                    self.focus_pane(info.id);
+                    self.scroll_pane_up(info.id, 3);
+                } else if let Some(info) = self.pane_frame_at(mouse.column, mouse.row).cloned() {
+                    self.focus_pane(info.id);
+                    self.scroll_pane_up(info.id, 3);
+                } else if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
                     if let Some(rt) = ws.focused_runtime() {
                         rt.scroll_up(3);
                     }
@@ -1025,7 +1052,13 @@ impl AppState {
             }
             MouseEventKind::ScrollDown if !in_sidebar => {
                 self.selection = None;
-                if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
+                if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
+                    self.focus_pane(info.id);
+                    self.scroll_pane_down(info.id, 3);
+                } else if let Some(info) = self.pane_frame_at(mouse.column, mouse.row).cloned() {
+                    self.focus_pane(info.id);
+                    self.scroll_pane_down(info.id, 3);
+                } else if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
                     if let Some(rt) = ws.focused_runtime() {
                         rt.scroll_down(3);
                     }
@@ -1240,6 +1273,89 @@ impl AppState {
                 && row >= p.inner_rect.y
                 && row < p.inner_rect.y + p.inner_rect.height
         })
+    }
+
+    fn pane_frame_at(&self, col: u16, row: u16) -> Option<&PaneInfo> {
+        self.view.pane_infos.iter().find(|p| {
+            col >= p.rect.x
+                && col < p.rect.x + p.rect.width
+                && row >= p.rect.y
+                && row < p.rect.y + p.rect.height
+        })
+    }
+
+    fn focus_pane(&mut self, pane_id: crate::layout::PaneId) {
+        if let Some(ws) = self.active.and_then(|i| self.workspaces.get_mut(i)) {
+            if ws.layout.focused() != pane_id {
+                ws.layout.focus_pane(pane_id);
+            }
+        }
+    }
+
+    fn scroll_pane_up(&self, pane_id: crate::layout::PaneId, lines: usize) {
+        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
+            if let Some(rt) = ws.runtimes.get(&pane_id) {
+                rt.scroll_up(lines);
+            }
+        }
+    }
+
+    fn scroll_pane_down(&self, pane_id: crate::layout::PaneId, lines: usize) {
+        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
+            if let Some(rt) = ws.runtimes.get(&pane_id) {
+                rt.scroll_down(lines);
+            }
+        }
+    }
+
+    fn set_pane_scroll_offset(&self, pane_id: crate::layout::PaneId, offset_from_bottom: usize) {
+        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
+            if let Some(rt) = ws.runtimes.get(&pane_id) {
+                rt.set_scroll_offset_from_bottom(offset_from_bottom);
+            }
+        }
+    }
+
+    fn scrollbar_target_at(&self, col: u16, row: u16) -> Option<(crate::layout::PaneId, usize)> {
+        let ws = self.active.and_then(|i| self.workspaces.get(i))?;
+        let info = self.view.pane_infos.iter().find(|info| {
+            crate::ui::pane_scrollbar_rect(info).is_some_and(|track| {
+                col >= track.x
+                    && col < track.x + track.width
+                    && row >= track.y
+                    && row < track.y + track.height
+            })
+        })?;
+        let rt = ws.runtimes.get(&info.id)?;
+        let metrics = rt.scroll_metrics()?;
+        if metrics.max_offset_from_bottom == 0 {
+            return None;
+        }
+        let track = crate::ui::pane_scrollbar_rect(info)?;
+        Some((
+            info.id,
+            crate::ui::scrollbar_offset_from_row(metrics, track, row),
+        ))
+    }
+
+    fn scrollbar_offset_for_pane_row(
+        &self,
+        pane_id: crate::layout::PaneId,
+        row: u16,
+    ) -> Option<usize> {
+        let ws = self.active.and_then(|i| self.workspaces.get(i))?;
+        let info = self
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)?;
+        let track = crate::ui::pane_scrollbar_rect(info)?;
+        let rt = ws.runtimes.get(&pane_id)?;
+        let metrics = rt.scroll_metrics()?;
+        if metrics.max_offset_from_bottom == 0 {
+            return None;
+        }
+        Some(crate::ui::scrollbar_offset_from_row(metrics, track, row))
     }
 }
 

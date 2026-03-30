@@ -395,6 +395,9 @@ pub(crate) enum DragTarget {
         direction: Direction,
         area: Rect,
     },
+    PaneScrollbar {
+        pane_id: crate::layout::PaneId,
+    },
     SidebarDivider,
 }
 

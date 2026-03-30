@@ -1,8 +1,11 @@
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs},
+    widgets::{
+        Block, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar,
+        ScrollbarOrientation, ScrollbarState, Tabs,
+    },
     Frame,
 };
 use tui_term::widget::PseudoTerminal;
@@ -619,6 +622,7 @@ fn render_panes(app: &AppState, frame: &mut Frame, area: Rect) {
                 let pt = PseudoTerminal::new(parser.screen());
                 frame.render_widget(pt, info.inner_rect);
             }
+            render_pane_scrollbar(app, frame, info, rt);
 
             // Dim unfocused panes only in navigate mode
             let should_dim = !info.is_focused && multi_pane && !terminal_active;
@@ -671,6 +675,86 @@ fn dim_color(color: Color) -> Color {
         // Indexed colors and others: just use DIM modifier as fallback
         _ => Color::DarkGray,
     }
+}
+
+pub(crate) fn pane_scrollbar_rect(info: &PaneInfo) -> Option<Rect> {
+    let inner = info.inner_rect;
+    if inner.width == 0 || inner.height == 0 {
+        return None;
+    }
+    Some(Rect::new(
+        inner.x + inner.width.saturating_sub(1),
+        inner.y,
+        1,
+        inner.height,
+    ))
+}
+
+pub(crate) fn scrollbar_offset_from_row(
+    metrics: crate::pane::ScrollMetrics,
+    track: Rect,
+    row: u16,
+) -> usize {
+    if metrics.max_offset_from_bottom == 0 || track.height <= 1 {
+        return metrics.max_offset_from_bottom;
+    }
+
+    let clamped_row = row.clamp(track.y, track.y + track.height.saturating_sub(1));
+    let row_offset = clamped_row.saturating_sub(track.y) as f32;
+    let max_row = track.height.saturating_sub(1) as f32;
+    let ratio = if max_row == 0.0 {
+        0.0
+    } else {
+        row_offset / max_row
+    };
+    let top_position = (ratio * metrics.max_offset_from_bottom as f32).round() as usize;
+    metrics.max_offset_from_bottom.saturating_sub(top_position)
+}
+
+fn render_pane_scrollbar(
+    app: &AppState,
+    frame: &mut Frame,
+    info: &PaneInfo,
+    rt: &crate::pane::PaneRuntime,
+) {
+    let Some(metrics) = rt.scroll_metrics() else {
+        return;
+    };
+    let Some(track) = pane_scrollbar_rect(info) else {
+        return;
+    };
+    if metrics.max_offset_from_bottom == 0 {
+        return;
+    }
+
+    let content_length = metrics.max_offset_from_bottom + metrics.viewport_rows;
+    let position = metrics
+        .max_offset_from_bottom
+        .saturating_sub(metrics.offset_from_bottom);
+    let mut scrollbar_state = ScrollbarState::new(content_length)
+        .position(position)
+        .viewport_content_length(metrics.viewport_rows);
+    let (track_color, thumb_color, thumb_symbol) = if info.is_focused {
+        (app.palette.overlay0, app.palette.overlay1, "▐")
+    } else {
+        (app.palette.surface_dim, app.palette.overlay0, "▕")
+    };
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("▕"))
+        .track_style(Style::default().fg(track_color))
+        .thumb_symbol(thumb_symbol)
+        .thumb_style(Style::default().fg(thumb_color));
+
+    frame.render_stateful_widget(
+        scrollbar,
+        track.inner(Margin {
+            vertical: 0,
+            horizontal: 0,
+        }),
+        &mut scrollbar_state,
+    );
 }
 
 fn render_selection_highlight(
@@ -1654,4 +1738,35 @@ fn _build_hints(items: &[(&str, &str)], key_style: Style, dim_style: Style) -> V
         spans.push(Span::styled(format!(" {desc}"), dim_style));
     }
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pane_scrollbar_rect_uses_rightmost_inner_column() {
+        let info = PaneInfo {
+            id: crate::layout::PaneId::from_raw(1),
+            rect: Rect::new(0, 0, 12, 8),
+            inner_rect: Rect::new(1, 1, 10, 6),
+            is_focused: true,
+        };
+
+        assert_eq!(pane_scrollbar_rect(&info), Some(Rect::new(10, 1, 1, 6)));
+    }
+
+    #[test]
+    fn scrollbar_offset_mapping_hits_top_middle_and_bottom() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+        let track = Rect::new(9, 4, 1, 5);
+
+        assert_eq!(scrollbar_offset_from_row(metrics, track, 4), 20);
+        assert_eq!(scrollbar_offset_from_row(metrics, track, 6), 10);
+        assert_eq!(scrollbar_offset_from_row(metrics, track, 8), 0);
+    }
 }

@@ -93,6 +93,13 @@ pub struct PaneRuntime {
     detect_handle: tokio::task::AbortHandle,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollMetrics {
+    pub offset_from_bottom: usize,
+    pub max_offset_from_bottom: usize,
+    pub viewport_rows: usize,
+}
+
 impl Drop for PaneRuntime {
     fn drop(&mut self) {
         // Abort detection task immediately.
@@ -108,12 +115,19 @@ fn trim_trailing_blank_rows(rows: &mut Vec<String>) {
     }
 }
 
-fn recent_text_from_parser(parser: &mut vt100::Parser<PtyResponses>, lines: usize) -> String {
+fn max_scrollback(parser: &mut vt100::Parser<PtyResponses>) -> usize {
     let screen = parser.screen_mut();
     let original_scrollback = screen.scrollback();
-
     screen.set_scrollback(usize::MAX);
     let max_scrollback = screen.scrollback();
+    screen.set_scrollback(original_scrollback);
+    max_scrollback
+}
+
+fn recent_text_from_parser(parser: &mut vt100::Parser<PtyResponses>, lines: usize) -> String {
+    let max_scrollback = max_scrollback(parser);
+    let screen = parser.screen_mut();
+    let original_scrollback = screen.scrollback();
 
     let (_, cols) = screen.size();
     screen.set_scrollback(0);
@@ -462,6 +476,27 @@ impl PaneRuntime {
         }
     }
 
+    /// Set scrollback offset measured from the live bottom of the terminal.
+    pub fn set_scroll_offset_from_bottom(&self, lines: usize) {
+        if let Ok(mut p) = self.parser.write() {
+            p.screen_mut().set_scrollback(lines);
+        }
+    }
+
+    pub fn scroll_metrics(&self) -> Option<ScrollMetrics> {
+        let Ok(mut parser) = self.parser.write() else {
+            return None;
+        };
+        let max_offset_from_bottom = max_scrollback(&mut parser);
+        let screen = parser.screen();
+        let (viewport_rows, _) = screen.size();
+        Some(ScrollMetrics {
+            offset_from_bottom: screen.scrollback(),
+            max_offset_from_bottom,
+            viewport_rows: viewport_rows as usize,
+        })
+    }
+
     pub fn visible_text(&self) -> String {
         let Ok(content) = self.screen_content.read() else {
             return String::new();
@@ -505,6 +540,19 @@ mod tests {
 
         let recent = recent_text_from_parser(&mut parser, 4);
         assert_eq!(recent, "b\nc\nd\ne\n");
+    }
+
+    #[test]
+    fn max_scrollback_reports_clamped_history_without_changing_position() {
+        let responses = PtyResponses::new();
+        let mut parser = vt100::Parser::new_with_callbacks(3, 10, 100, responses);
+        parser.process(b"a\r\nb\r\nc\r\nd\r\ne");
+        parser.screen_mut().set_scrollback(1);
+
+        let max = max_scrollback(&mut parser);
+
+        assert_eq!(max, 2);
+        assert_eq!(parser.screen().scrollback(), 1);
     }
 
     #[test]
