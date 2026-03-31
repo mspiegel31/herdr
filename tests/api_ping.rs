@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -18,6 +18,7 @@ fn unique_test_dir() -> PathBuf {
 
 struct SpawnedHerdr {
     _master: Box<dyn MasterPty + Send>,
+    _drain_thread: thread::JoinHandle<()>,
     child: Box<dyn Child + Send + Sync>,
 }
 
@@ -76,10 +77,22 @@ fn spawn_herdr_with_path(
         cmd.env("PATH", path);
     }
 
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let drain_thread = thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    });
+
     let child = pair.slave.spawn_command(cmd).unwrap();
 
     SpawnedHerdr {
         _master: pair.master,
+        _drain_thread: drain_thread,
         child,
     }
 }

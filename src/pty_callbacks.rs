@@ -14,7 +14,7 @@ use std::sync::{
 
 /// Collects response bytes that need to be written back to the PTY.
 /// Also tracks whether the child has requested the Kitty keyboard protocol.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PtyResponses {
     pending: Arc<Mutex<Vec<u8>>>,
     /// Stack of kitty keyboard enhancement flags pushed by child programs.
@@ -27,6 +27,21 @@ pub struct PtyResponses {
     pub kitty_keyboard: Arc<AtomicBool>,
     /// Exact active kitty keyboard flags from the top of the stack.
     pub kitty_keyboard_flags: Arc<AtomicU16>,
+    /// Tracks DECSET 1007 (alternate scroll mode).
+    /// Default on, matching Ghostty/xterm-style behavior for fullscreen apps.
+    pub mouse_alternate_scroll: Arc<AtomicBool>,
+}
+
+impl Default for PtyResponses {
+    fn default() -> Self {
+        Self {
+            pending: Arc::default(),
+            kitty_stack: Arc::default(),
+            kitty_keyboard: Arc::new(AtomicBool::new(false)),
+            kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
+            mouse_alternate_scroll: Arc::new(AtomicBool::new(true)),
+        }
+    }
 }
 
 impl PtyResponses {
@@ -42,6 +57,12 @@ impl PtyResponses {
 
     fn push(&self, bytes: &[u8]) {
         self.pending.lock().unwrap().extend_from_slice(bytes);
+    }
+
+    fn has_private_mode(params: &[&[u16]], mode: u16) -> bool {
+        params
+            .iter()
+            .any(|param| param.len() == 1 && param[0] == mode)
     }
 }
 
@@ -100,8 +121,17 @@ impl vt100::Callbacks for PtyResponses {
             // DECRQM: \e[?Np → "is DEC private mode N set?"
             // Response: \e[?N;Ps$y where Ps = 1 (set), 2 (reset), 0 (unknown)
             (Some(b'?'), 'p') => {
-                // Report all queried modes as "reset" (2) — safe default
-                let response = format!("\x1b[?{param0};2$y");
+                let state = match param0 {
+                    1007 => {
+                        if self.mouse_alternate_scroll.load(Ordering::Relaxed) {
+                            1
+                        } else {
+                            2
+                        }
+                    }
+                    _ => 2,
+                };
+                let response = format!("\x1b[?{param0};{state}$y");
                 self.push(response.as_bytes());
             }
 
@@ -112,6 +142,14 @@ impl vt100::Callbacks for PtyResponses {
             }
 
             // === Keyboard Protocol ===
+
+            // DECSET/DECRST 1007: alternate scroll mode.
+            (Some(b'?'), 'h') if Self::has_private_mode(params, 1007) => {
+                self.mouse_alternate_scroll.store(true, Ordering::Relaxed);
+            }
+            (Some(b'?'), 'l') if Self::has_private_mode(params, 1007) => {
+                self.mouse_alternate_scroll.store(false, Ordering::Relaxed);
+            }
 
             // Kitty keyboard query: \e[?u → "what keyboard flags are active?"
             (Some(b'?'), 'u') => {
@@ -249,6 +287,32 @@ mod tests {
         let mut p = make_parser(r.clone());
         p.process(b"\x1b[?25p"); // query: is cursor visible (mode 25)?
         assert_eq!(r.take(), b"\x1b[?25;2$y"); // "reset" (2)
+    }
+
+    #[test]
+    fn alternate_scroll_defaults_on_and_reports_set() {
+        let r = PtyResponses::new();
+        let mut p = make_parser(r.clone());
+
+        assert!(r.mouse_alternate_scroll.load(Ordering::Relaxed));
+        p.process(b"\x1b[?1007p");
+        assert_eq!(r.take(), b"\x1b[?1007;1$y");
+    }
+
+    #[test]
+    fn decset_decrst_1007_updates_alternate_scroll_mode() {
+        let r = PtyResponses::new();
+        let mut p = make_parser(r.clone());
+
+        p.process(b"\x1b[?1007l");
+        assert!(!r.mouse_alternate_scroll.load(Ordering::Relaxed));
+        p.process(b"\x1b[?1007p");
+        assert_eq!(r.take(), b"\x1b[?1007;2$y");
+
+        p.process(b"\x1b[?1007h");
+        assert!(r.mouse_alternate_scroll.load(Ordering::Relaxed));
+        p.process(b"\x1b[?1007p");
+        assert_eq!(r.take(), b"\x1b[?1007;1$y");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
 
 use super::{KeyboardProtocol, TerminalKey};
 
@@ -21,6 +21,77 @@ pub fn encode_terminal_key(key: TerminalKey, protocol: KeyboardProtocol) -> Vec<
         }
     }
     encode_legacy(key.as_key_event())
+}
+
+pub fn encode_cursor_key(code: KeyCode, application_cursor: bool) -> Vec<u8> {
+    match (code, application_cursor) {
+        (KeyCode::Up, true) => b"\x1bOA".to_vec(),
+        (KeyCode::Down, true) => b"\x1bOB".to_vec(),
+        (KeyCode::Right, true) => b"\x1bOC".to_vec(),
+        (KeyCode::Left, true) => b"\x1bOD".to_vec(),
+        (KeyCode::Up, false) => b"\x1b[A".to_vec(),
+        (KeyCode::Down, false) => b"\x1b[B".to_vec(),
+        (KeyCode::Right, false) => b"\x1b[C".to_vec(),
+        (KeyCode::Left, false) => b"\x1b[D".to_vec(),
+        _ => encode_legacy(KeyEvent::new(code, KeyModifiers::empty())),
+    }
+}
+
+pub fn encode_mouse_scroll(
+    kind: MouseEventKind,
+    column: u16,
+    row: u16,
+    modifiers: KeyModifiers,
+    encoding: vt100::MouseProtocolEncoding,
+) -> Option<Vec<u8>> {
+    let button = match kind {
+        MouseEventKind::ScrollUp => 64u16,
+        MouseEventKind::ScrollDown => 65u16,
+        MouseEventKind::ScrollLeft => 66u16,
+        MouseEventKind::ScrollRight => 67u16,
+        _ => return None,
+    };
+
+    let mut cb = button;
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        cb += 4;
+    }
+    if modifiers.contains(KeyModifiers::ALT) {
+        cb += 8;
+    }
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        cb += 16;
+    }
+
+    let column = column as u32 + 1;
+    let row = row as u32 + 1;
+
+    match encoding {
+        vt100::MouseProtocolEncoding::Sgr => {
+            Some(format!("\x1b[<{cb};{column};{row}M").into_bytes())
+        }
+        vt100::MouseProtocolEncoding::Default => {
+            let cb = u8::try_from(cb + 32).ok()?;
+            let column = u8::try_from(column + 32).ok()?;
+            let row = u8::try_from(row + 32).ok()?;
+            Some(vec![0x1b, b'[', b'M', cb, column, row])
+        }
+        vt100::MouseProtocolEncoding::Utf8 => {
+            let mut bytes = Vec::with_capacity(16);
+            bytes.extend_from_slice(b"\x1b[M");
+            push_mouse_codepoint(&mut bytes, cb as u32 + 32)?;
+            push_mouse_codepoint(&mut bytes, column + 32)?;
+            push_mouse_codepoint(&mut bytes, row + 32)?;
+            Some(bytes)
+        }
+    }
+}
+
+fn push_mouse_codepoint(bytes: &mut Vec<u8>, value: u32) -> Option<()> {
+    let ch = char::from_u32(value)?;
+    let mut buf = [0u8; 4];
+    bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+    Some(())
 }
 
 /// CSI u encoding: \e[{codepoint};{modifiers}u

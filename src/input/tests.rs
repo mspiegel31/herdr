@@ -1,7 +1,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, ModifierKeyCode};
 
 use super::{
-    encode_key, encode_terminal_key, parse_terminal_key_sequence, KeyboardProtocol, TerminalKey,
+    encode_cursor_key, encode_key, encode_mouse_scroll, encode_terminal_key,
+    parse_terminal_key_sequence, KeyboardProtocol, TerminalKey,
 };
 
 fn assert_terminal_key_eq(
@@ -140,6 +141,32 @@ fn legacy_alt_char_still_esc_prefix() {
     // Alt+a on character keys still uses ESC prefix (not xterm modified)
     let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::ALT);
     assert_eq!(encode_key(key, KeyboardProtocol::Legacy), b"\x1ba");
+}
+
+#[test]
+fn application_cursor_keys_use_ss3_sequences() {
+    assert_eq!(encode_cursor_key(KeyCode::Up, true), b"\x1bOA");
+    assert_eq!(encode_cursor_key(KeyCode::Down, true), b"\x1bOB");
+}
+
+#[test]
+fn normal_cursor_keys_use_csi_sequences() {
+    assert_eq!(encode_cursor_key(KeyCode::Up, false), b"\x1b[A");
+    assert_eq!(encode_cursor_key(KeyCode::Down, false), b"\x1b[B");
+}
+
+#[test]
+fn sgr_mouse_scroll_encodes_wheel_button_and_coordinates() {
+    let encoded = encode_mouse_scroll(
+        crossterm::event::MouseEventKind::ScrollDown,
+        4,
+        6,
+        KeyModifiers::SHIFT,
+        vt100::MouseProtocolEncoding::Sgr,
+    )
+    .expect("mouse scroll should encode");
+
+    assert_eq!(encoded, b"\x1b[<69;5;7M");
 }
 
 #[test]

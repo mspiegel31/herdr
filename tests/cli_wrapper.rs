@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,6 +18,7 @@ fn unique_test_dir() -> PathBuf {
 
 struct SpawnedHerdr {
     _master: Box<dyn MasterPty + Send>,
+    _drain_thread: thread::JoinHandle<()>,
     child: Box<dyn Child + Send + Sync>,
 }
 
@@ -57,9 +58,21 @@ fn spawn_herdr(config_home: &Path, runtime_dir: &Path, socket_path: &Path) -> Sp
     cmd.env("HERDR_SOCKET_PATH", socket_path);
     cmd.env_remove("HERDR_ENV");
 
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let drain_thread = thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    });
+
     let child = pair.slave.spawn_command(cmd).unwrap();
     SpawnedHerdr {
         _master: pair.master,
+        _drain_thread: drain_thread,
         child,
     }
 }
@@ -515,9 +528,20 @@ fn wait_agent_state_exits_when_state_matches() {
             std::env::var("PATH").unwrap_or_default()
         ),
     );
+    let mut reader = pair.master.try_clone_reader().unwrap();
+    let drain_thread = thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    });
     let child = pair.slave.spawn_command(cmd).unwrap();
     let mut herdr = SpawnedHerdr {
         _master: pair.master,
+        _drain_thread: drain_thread,
         child,
     };
 

@@ -16,6 +16,13 @@ enum ScrollbarClickTarget {
     Track { offset_from_bottom: usize },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WheelRouting {
+    HostScroll,
+    MouseReport,
+    AlternateScroll,
+}
+
 use super::state::{
     key_matches, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, Mode,
 };
@@ -1071,33 +1078,9 @@ impl AppState {
                 }
             }
 
-            MouseEventKind::ScrollUp if !in_sidebar => {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown if !in_sidebar => {
                 self.selection = None;
-                if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
-                    self.focus_pane(info.id);
-                    self.scroll_pane_up(info.id, 3);
-                } else if let Some(info) = self.pane_frame_at(mouse.column, mouse.row).cloned() {
-                    self.focus_pane(info.id);
-                    self.scroll_pane_up(info.id, 3);
-                } else if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
-                    if let Some(rt) = ws.focused_runtime() {
-                        rt.scroll_up(3);
-                    }
-                }
-            }
-            MouseEventKind::ScrollDown if !in_sidebar => {
-                self.selection = None;
-                if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
-                    self.focus_pane(info.id);
-                    self.scroll_pane_down(info.id, 3);
-                } else if let Some(info) = self.pane_frame_at(mouse.column, mouse.row).cloned() {
-                    self.focus_pane(info.id);
-                    self.scroll_pane_down(info.id, 3);
-                } else if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
-                    if let Some(rt) = ws.focused_runtime() {
-                        rt.scroll_down(3);
-                    }
-                }
+                self.handle_terminal_wheel(mouse);
             }
 
             MouseEventKind::ScrollUp if in_sidebar => {
@@ -1343,6 +1326,91 @@ impl AppState {
         }
     }
 
+    fn handle_terminal_wheel(&mut self, mouse: MouseEvent) {
+        const LINES_PER_NOTCH: usize = 3;
+
+        if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
+            self.focus_pane(info.id);
+            if self.forward_pane_wheel(&info, mouse) {
+                return;
+            }
+            match mouse.kind {
+                MouseEventKind::ScrollUp => self.scroll_pane_up(info.id, LINES_PER_NOTCH),
+                MouseEventKind::ScrollDown => self.scroll_pane_down(info.id, LINES_PER_NOTCH),
+                _ => {}
+            }
+            return;
+        }
+
+        if let Some(info) = self.pane_frame_at(mouse.column, mouse.row).cloned() {
+            self.focus_pane(info.id);
+            match mouse.kind {
+                MouseEventKind::ScrollUp => self.scroll_pane_up(info.id, LINES_PER_NOTCH),
+                MouseEventKind::ScrollDown => self.scroll_pane_down(info.id, LINES_PER_NOTCH),
+                _ => {}
+            }
+            return;
+        }
+
+        if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
+            if let Some(rt) = ws.focused_runtime() {
+                match mouse.kind {
+                    MouseEventKind::ScrollUp => rt.scroll_up(LINES_PER_NOTCH),
+                    MouseEventKind::ScrollDown => rt.scroll_down(LINES_PER_NOTCH),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn forward_pane_wheel(&self, info: &PaneInfo, mouse: MouseEvent) -> bool {
+        let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) else {
+            return false;
+        };
+        let Some(rt) = ws.runtimes.get(&info.id) else {
+            return false;
+        };
+        let Some(input_state) = rt.input_state() else {
+            return false;
+        };
+
+        match wheel_routing(input_state) {
+            WheelRouting::HostScroll => false,
+            WheelRouting::MouseReport => {
+                rt.scroll_reset();
+                let column = mouse.column.saturating_sub(info.inner_rect.x);
+                let row = mouse.row.saturating_sub(info.inner_rect.y);
+                let Some(bytes) = crate::input::encode_mouse_scroll(
+                    mouse.kind,
+                    column,
+                    row,
+                    mouse.modifiers,
+                    input_state.mouse_protocol_encoding,
+                ) else {
+                    warn!(pane = info.id.raw(), kind = ?mouse.kind, "failed to encode mouse wheel event");
+                    return true;
+                };
+                if let Err(err) = rt.sender.try_send(Bytes::from(bytes)) {
+                    warn!(pane = info.id.raw(), err = %err, "failed to forward mouse wheel event");
+                }
+                true
+            }
+            WheelRouting::AlternateScroll => {
+                rt.scroll_reset();
+                let key = match mouse.kind {
+                    MouseEventKind::ScrollUp => KeyCode::Up,
+                    MouseEventKind::ScrollDown => KeyCode::Down,
+                    _ => return true,
+                };
+                let bytes = crate::input::encode_cursor_key(key, input_state.application_cursor);
+                if let Err(err) = rt.sender.try_send(Bytes::from(bytes)) {
+                    warn!(pane = info.id.raw(), err = %err, "failed to forward alternate-scroll key");
+                }
+                true
+            }
+        }
+    }
+
     fn set_pane_scroll_offset(&self, pane_id: crate::layout::PaneId, offset_from_bottom: usize) {
         if let Some(ws) = self.active.and_then(|i| self.workspaces.get(i)) {
             if let Some(rt) = ws.runtimes.get(&pane_id) {
@@ -1407,6 +1475,16 @@ impl AppState {
             row,
             grab_row_offset,
         ))
+    }
+}
+
+fn wheel_routing(input_state: crate::pane::InputState) -> WheelRouting {
+    if input_state.mouse_protocol_mode != vt100::MouseProtocolMode::None {
+        WheelRouting::MouseReport
+    } else if input_state.alternate_screen && input_state.mouse_alternate_scroll {
+        WheelRouting::AlternateScroll
+    } else {
+        WheelRouting::HostScroll
     }
 }
 
@@ -1655,5 +1733,44 @@ mod tests {
 
         assert!(app.state.sidebar_width_auto);
         assert!(app.state.drag.is_none());
+    }
+
+    #[test]
+    fn wheel_routing_prefers_mouse_reporting() {
+        let input_state = crate::pane::InputState {
+            alternate_screen: true,
+            application_cursor: false,
+            mouse_protocol_mode: vt100::MouseProtocolMode::ButtonMotion,
+            mouse_protocol_encoding: vt100::MouseProtocolEncoding::Sgr,
+            mouse_alternate_scroll: true,
+        };
+
+        assert_eq!(wheel_routing(input_state), WheelRouting::MouseReport);
+    }
+
+    #[test]
+    fn wheel_routing_uses_alternate_scroll_in_fullscreen_without_mouse_reporting() {
+        let input_state = crate::pane::InputState {
+            alternate_screen: true,
+            application_cursor: false,
+            mouse_protocol_mode: vt100::MouseProtocolMode::None,
+            mouse_protocol_encoding: vt100::MouseProtocolEncoding::Default,
+            mouse_alternate_scroll: true,
+        };
+
+        assert_eq!(wheel_routing(input_state), WheelRouting::AlternateScroll);
+    }
+
+    #[test]
+    fn wheel_routing_falls_back_to_host_scrollback() {
+        let input_state = crate::pane::InputState {
+            alternate_screen: false,
+            application_cursor: false,
+            mouse_protocol_mode: vt100::MouseProtocolMode::None,
+            mouse_protocol_encoding: vt100::MouseProtocolEncoding::Default,
+            mouse_alternate_scroll: true,
+        };
+
+        assert_eq!(wheel_routing(input_state), WheelRouting::HostScroll);
     }
 }

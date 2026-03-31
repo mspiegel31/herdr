@@ -84,6 +84,7 @@ pub struct PaneRuntime {
     current_size: Cell<(u16, u16)>,
     child_pid: Arc<AtomicU32>,
     pub kitty_keyboard_flags: Arc<AtomicU16>,
+    mouse_alternate_scroll: Arc<AtomicBool>,
     /// Live screen content snapshot — updated by reader, read by detector.
     /// Decouples detection from parser viewport state (scrollback).
     /// Kept alive here so the Arc isn't dropped; tasks hold their own clones.
@@ -101,9 +102,12 @@ pub struct ScrollMetrics {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScrollState {
-    pub metrics: ScrollMetrics,
+pub struct InputState {
     pub alternate_screen: bool,
+    pub application_cursor: bool,
+    pub mouse_protocol_mode: vt100::MouseProtocolMode,
+    pub mouse_protocol_encoding: vt100::MouseProtocolEncoding,
+    pub mouse_alternate_scroll: bool,
 }
 
 impl Drop for PaneRuntime {
@@ -263,6 +267,7 @@ impl PaneRuntime {
 
         let responses = PtyResponses::new();
         let kitty_keyboard_flags = responses.kitty_keyboard_flags.clone();
+        let mouse_alternate_scroll = responses.mouse_alternate_scroll.clone();
         let parser = Arc::new(RwLock::new(vt100::Parser::new_with_callbacks(
             rows,
             cols,
@@ -523,6 +528,7 @@ impl PaneRuntime {
             current_size: Cell::new((rows, cols)),
             child_pid,
             kitty_keyboard_flags,
+            mouse_alternate_scroll,
             screen_content,
             detect_handle,
         })
@@ -572,25 +578,32 @@ impl PaneRuntime {
         }
     }
 
-    pub fn scroll_state(&self) -> Option<ScrollState> {
+    pub fn scroll_metrics(&self) -> Option<ScrollMetrics> {
         let Ok(mut parser) = self.parser.write() else {
             return None;
         };
         let max_offset_from_bottom = max_scrollback(&mut parser);
         let screen = parser.screen();
         let (viewport_rows, _) = screen.size();
-        Some(ScrollState {
-            metrics: ScrollMetrics {
-                offset_from_bottom: screen.scrollback(),
-                max_offset_from_bottom,
-                viewport_rows: viewport_rows as usize,
-            },
-            alternate_screen: screen.alternate_screen(),
+        Some(ScrollMetrics {
+            offset_from_bottom: screen.scrollback(),
+            max_offset_from_bottom,
+            viewport_rows: viewport_rows as usize,
         })
     }
 
-    pub fn scroll_metrics(&self) -> Option<ScrollMetrics> {
-        self.scroll_state().map(|state| state.metrics)
+    pub fn input_state(&self) -> Option<InputState> {
+        let Ok(parser) = self.parser.read() else {
+            return None;
+        };
+        let screen = parser.screen();
+        Some(InputState {
+            alternate_screen: screen.alternate_screen(),
+            application_cursor: screen.application_cursor(),
+            mouse_protocol_mode: screen.mouse_protocol_mode(),
+            mouse_protocol_encoding: screen.mouse_protocol_encoding(),
+            mouse_alternate_scroll: self.mouse_alternate_scroll.load(Ordering::Relaxed),
+        })
     }
 
     pub fn visible_text(&self) -> String {
@@ -659,25 +672,45 @@ mod tests {
     }
 
     #[test]
-    fn alternate_screen_accumulates_its_own_scrollback() {
+    fn alternate_screen_does_not_accumulate_host_scrollback() {
         let responses = PtyResponses::new();
-        let mut parser = vt100::Parser::new_with_callbacks(2, 10, 100, responses);
-        parser.process(b"\x1b[?1049h1\r\n2\r\n3");
+        let mut parser = vt100::Parser::new_with_callbacks(3, 10, 100, responses);
+        parser.process(b"\x1b[?1049h1\r\n2\r\n3\r\n4");
 
         assert!(parser.screen().alternate_screen());
-        assert_eq!(max_scrollback(&mut parser), 1);
-        assert_eq!(recent_text_from_parser(&mut parser, 3), "1\n2\n3\n");
+        assert_eq!(max_scrollback(&mut parser), 0);
+        assert_eq!(recent_text_from_parser(&mut parser, 4), "2\n3\n4\n");
     }
 
     #[test]
-    fn top_anchored_scroll_regions_feed_scrollback() {
+    fn normal_screen_top_anchored_scroll_regions_feed_scrollback() {
+        let responses = PtyResponses::new();
+        let mut parser = vt100::Parser::new_with_callbacks(5, 10, 100, responses);
+        parser.process(b"1\r\n2\r\n3\r\n4\r\n5");
+        parser.process(b"\x1b[1;3r\x1b[3;1H\r\nX");
+
+        assert_eq!(max_scrollback(&mut parser), 1);
+    }
+
+    #[test]
+    fn normal_screen_non_top_anchored_scroll_regions_do_not_feed_scrollback() {
+        let responses = PtyResponses::new();
+        let mut parser = vt100::Parser::new_with_callbacks(5, 10, 100, responses);
+        parser.process(b"1\r\n2\r\n3\r\n4\r\n5");
+        parser.process(b"\x1b[2;4r\x1b[4;1H\r\nX");
+
+        assert_eq!(max_scrollback(&mut parser), 0);
+    }
+
+    #[test]
+    fn alternate_screen_scroll_regions_do_not_create_host_scrollback() {
         let responses = PtyResponses::new();
         let mut parser = vt100::Parser::new_with_callbacks(5, 10, 100, responses);
         parser.process(b"\x1b[?1049h1\r\n2\r\n3\r\n4\r\n5");
         parser.process(b"\x1b[1;3r\x1b[3;1H\r\nX");
 
         assert!(parser.screen().alternate_screen());
-        assert_eq!(max_scrollback(&mut parser), 1);
+        assert_eq!(max_scrollback(&mut parser), 0);
     }
 
     #[test]

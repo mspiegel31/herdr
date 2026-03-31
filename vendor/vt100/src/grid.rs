@@ -59,11 +59,6 @@ impl Grid {
         self.saved_origin_mode = false;
     }
 
-    pub fn clear_scrollback(&mut self) {
-        self.scrollback.clear();
-        self.scrollback_offset = 0;
-    }
-
     pub fn size(&self) -> Size {
         self.size
     }
@@ -568,6 +563,8 @@ impl Grid {
             self.rows
                 .insert(usize::from(self.scroll_bottom) + 1, self.new_row());
             let removed = self.rows.remove(usize::from(self.scroll_top));
+            // Top-anchored scroll regions still represent terminal output moving
+            // off the visible transcript and should feed host scrollback.
             if self.scrollback_len > 0 && self.scroll_top == 0 {
                 self.scrollback.push_back(removed);
                 while self.scrollback.len() > self.scrollback_len {

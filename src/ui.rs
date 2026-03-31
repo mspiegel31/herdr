@@ -121,14 +121,10 @@ fn compute_pane_infos(app: &AppState, area: Rect) -> Vec<PaneInfo> {
         let mut inner_rect = area;
         let mut scrollbar_rect = None;
         if let Some(rt) = ws.runtimes.get(&focused_id) {
-            let detected_agent = ws
-                .panes
-                .get(&focused_id)
-                .and_then(|pane| pane.detected_agent);
-            if rt.scroll_state().is_some_and(|state| {
-                should_show_scrollbar(state.metrics, state.alternate_screen, detected_agent)
-                    && area.width > 1
-            }) {
+            if rt
+                .scroll_metrics()
+                .is_some_and(|metrics| should_show_scrollbar(metrics) && area.width > 1)
+            {
                 inner_rect.width = inner_rect.width.saturating_sub(1);
                 scrollbar_rect = Some(Rect::new(
                     area.x + area.width.saturating_sub(1),
@@ -168,11 +164,10 @@ fn compute_pane_infos(app: &AppState, area: Rect) -> Vec<PaneInfo> {
         let mut inner_rect = pane_inner;
         let mut scrollbar_rect = None;
         if let Some(rt) = ws.runtimes.get(&info.id) {
-            let detected_agent = ws.panes.get(&info.id).and_then(|pane| pane.detected_agent);
-            if rt.scroll_state().is_some_and(|state| {
-                should_show_scrollbar(state.metrics, state.alternate_screen, detected_agent)
-                    && pane_inner.width > 1
-            }) {
+            if rt
+                .scroll_metrics()
+                .is_some_and(|metrics| should_show_scrollbar(metrics) && pane_inner.width > 1)
+            {
                 inner_rect.width = inner_rect.width.saturating_sub(1);
                 scrollbar_rect = Some(Rect::new(
                     pane_inner.x + pane_inner.width.saturating_sub(1),
@@ -699,20 +694,8 @@ pub(crate) fn pane_scrollbar_rect(info: &PaneInfo) -> Option<Rect> {
     info.scrollbar_rect
 }
 
-fn should_show_scrollbar(
-    metrics: crate::pane::ScrollMetrics,
-    alternate_screen: bool,
-    detected_agent: Option<crate::detect::Agent>,
-) -> bool {
-    if metrics.max_offset_from_bottom == 0 {
-        return false;
-    }
-
-    if !alternate_screen {
-        return true;
-    }
-
-    metrics.offset_from_bottom > 0 || detected_agent.is_some()
+fn should_show_scrollbar(metrics: crate::pane::ScrollMetrics) -> bool {
+    metrics.max_offset_from_bottom > 0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1845,51 +1828,25 @@ mod tests {
     }
 
     #[test]
-    fn alternate_screen_scrollbar_stays_hidden_for_unidentified_live_bottom() {
+    fn scrollbar_stays_hidden_without_scrollback() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 0,
+            viewport_rows: 5,
+        };
+
+        assert!(!should_show_scrollbar(metrics));
+    }
+
+    #[test]
+    fn scrollbar_shows_with_scrollback() {
         let metrics = crate::pane::ScrollMetrics {
             offset_from_bottom: 0,
             max_offset_from_bottom: 20,
             viewport_rows: 5,
         };
 
-        assert!(!should_show_scrollbar(metrics, true, None));
-    }
-
-    #[test]
-    fn alternate_screen_scrollbar_shows_for_agents_at_live_bottom() {
-        let metrics = crate::pane::ScrollMetrics {
-            offset_from_bottom: 0,
-            max_offset_from_bottom: 20,
-            viewport_rows: 5,
-        };
-
-        assert!(should_show_scrollbar(
-            metrics,
-            true,
-            Some(crate::detect::Agent::Codex)
-        ));
-    }
-
-    #[test]
-    fn alternate_screen_scrollbar_shows_when_user_scrolled_up() {
-        let metrics = crate::pane::ScrollMetrics {
-            offset_from_bottom: 3,
-            max_offset_from_bottom: 20,
-            viewport_rows: 5,
-        };
-
-        assert!(should_show_scrollbar(metrics, true, None));
-    }
-
-    #[test]
-    fn normal_screen_scrollbar_shows_with_scrollback() {
-        let metrics = crate::pane::ScrollMetrics {
-            offset_from_bottom: 0,
-            max_offset_from_bottom: 20,
-            viewport_rows: 5,
-        };
-
-        assert!(should_show_scrollbar(metrics, false, None));
+        assert!(should_show_scrollbar(metrics));
     }
 
     #[test]
