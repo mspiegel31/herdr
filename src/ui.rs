@@ -1,11 +1,8 @@
 use ratatui::{
-    layout::{Constraint, Layout, Margin, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar,
-        ScrollbarOrientation, ScrollbarState, Tabs,
-    },
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs},
     Frame,
 };
 use tui_term::widget::PseudoTerminal;
@@ -124,10 +121,14 @@ fn compute_pane_infos(app: &AppState, area: Rect) -> Vec<PaneInfo> {
         let mut inner_rect = area;
         let mut scrollbar_rect = None;
         if let Some(rt) = ws.runtimes.get(&focused_id) {
-            if rt
-                .scroll_metrics()
-                .is_some_and(|metrics| metrics.max_offset_from_bottom > 0 && area.width > 1)
-            {
+            let detected_agent = ws
+                .panes
+                .get(&focused_id)
+                .and_then(|pane| pane.detected_agent);
+            if rt.scroll_state().is_some_and(|state| {
+                should_show_scrollbar(state.metrics, state.alternate_screen, detected_agent)
+                    && area.width > 1
+            }) {
                 inner_rect.width = inner_rect.width.saturating_sub(1);
                 scrollbar_rect = Some(Rect::new(
                     area.x + area.width.saturating_sub(1),
@@ -167,10 +168,11 @@ fn compute_pane_infos(app: &AppState, area: Rect) -> Vec<PaneInfo> {
         let mut inner_rect = pane_inner;
         let mut scrollbar_rect = None;
         if let Some(rt) = ws.runtimes.get(&info.id) {
-            if rt
-                .scroll_metrics()
-                .is_some_and(|metrics| metrics.max_offset_from_bottom > 0 && pane_inner.width > 1)
-            {
+            let detected_agent = ws.panes.get(&info.id).and_then(|pane| pane.detected_agent);
+            if rt.scroll_state().is_some_and(|state| {
+                should_show_scrollbar(state.metrics, state.alternate_screen, detected_agent)
+                    && pane_inner.width > 1
+            }) {
                 inner_rect.width = inner_rect.width.saturating_sub(1);
                 scrollbar_rect = Some(Rect::new(
                     pane_inner.x + pane_inner.width.saturating_sub(1),
@@ -633,7 +635,9 @@ fn render_panes(app: &AppState, frame: &mut Frame, area: Rect) {
 
             // Draw terminal content
             if let Ok(parser) = rt.parser.read() {
-                let pt = PseudoTerminal::new(parser.screen());
+                let show_cursor = parser.screen().scrollback() == 0;
+                let pt = PseudoTerminal::new(parser.screen())
+                    .cursor(tui_term::widget::Cursor::default().visibility(show_cursor));
                 frame.render_widget(pt, info.inner_rect);
             }
             render_pane_scrollbar(app, frame, info, rt);
@@ -695,25 +699,125 @@ pub(crate) fn pane_scrollbar_rect(info: &PaneInfo) -> Option<Rect> {
     info.scrollbar_rect
 }
 
+fn should_show_scrollbar(
+    metrics: crate::pane::ScrollMetrics,
+    alternate_screen: bool,
+    detected_agent: Option<crate::detect::Agent>,
+) -> bool {
+    if metrics.max_offset_from_bottom == 0 {
+        return false;
+    }
+
+    if !alternate_screen {
+        return true;
+    }
+
+    metrics.offset_from_bottom > 0 || detected_agent.is_some()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollbarThumb {
+    pub top: u16,
+    pub len: u16,
+}
+
+pub(crate) fn scrollbar_thumb(
+    metrics: crate::pane::ScrollMetrics,
+    track: Rect,
+) -> Option<ScrollbarThumb> {
+    if metrics.max_offset_from_bottom == 0 || track.height == 0 {
+        return None;
+    }
+
+    let track_height = track.height as usize;
+    let total_rows = metrics.max_offset_from_bottom + metrics.viewport_rows;
+    if total_rows == 0 {
+        return None;
+    }
+
+    let thumb_len = ((metrics.viewport_rows * track_height) as f32 / total_rows as f32)
+        .round()
+        .max(1.0)
+        .min(track_height as f32) as usize;
+    let max_thumb_top = track_height.saturating_sub(thumb_len);
+    let scrolled_from_top = metrics
+        .max_offset_from_bottom
+        .saturating_sub(metrics.offset_from_bottom);
+    let thumb_top = if max_thumb_top == 0 || metrics.max_offset_from_bottom == 0 {
+        0
+    } else {
+        ((scrolled_from_top * max_thumb_top) as f32 / metrics.max_offset_from_bottom as f32)
+            .round()
+            .clamp(0.0, max_thumb_top as f32) as usize
+    };
+
+    Some(ScrollbarThumb {
+        top: track.y + thumb_top as u16,
+        len: thumb_len as u16,
+    })
+}
+
+pub(crate) fn scrollbar_thumb_grab_offset(
+    metrics: crate::pane::ScrollMetrics,
+    track: Rect,
+    row: u16,
+) -> Option<u16> {
+    let thumb = scrollbar_thumb(metrics, track)?;
+    (row >= thumb.top && row < thumb.top + thumb.len).then_some(row - thumb.top)
+}
+
+fn scrollbar_offset_from_thumb_top(
+    metrics: crate::pane::ScrollMetrics,
+    track: Rect,
+    thumb_top: usize,
+) -> usize {
+    if metrics.max_offset_from_bottom == 0 {
+        return 0;
+    }
+
+    let thumb_len = scrollbar_thumb(metrics, track)
+        .map(|thumb| thumb.len as usize)
+        .unwrap_or(1);
+    let max_thumb_top = track.height as usize - thumb_len.min(track.height as usize);
+    if max_thumb_top == 0 {
+        return 0;
+    }
+
+    let desired_top = thumb_top.min(max_thumb_top);
+    let scrolled_from_top = ((desired_top * metrics.max_offset_from_bottom) as f32
+        / max_thumb_top as f32)
+        .round() as usize;
+    metrics
+        .max_offset_from_bottom
+        .saturating_sub(scrolled_from_top)
+}
+
 pub(crate) fn scrollbar_offset_from_row(
     metrics: crate::pane::ScrollMetrics,
     track: Rect,
     row: u16,
 ) -> usize {
-    if metrics.max_offset_from_bottom == 0 || track.height <= 1 {
-        return metrics.max_offset_from_bottom;
-    }
-
-    let clamped_row = row.clamp(track.y, track.y + track.height.saturating_sub(1));
-    let row_offset = clamped_row.saturating_sub(track.y) as f32;
-    let max_row = track.height.saturating_sub(1) as f32;
-    let ratio = if max_row == 0.0 {
-        0.0
-    } else {
-        row_offset / max_row
+    let thumb = match scrollbar_thumb(metrics, track) {
+        Some(thumb) => thumb,
+        None => return 0,
     };
-    let top_position = (ratio * metrics.max_offset_from_bottom as f32).round() as usize;
-    metrics.max_offset_from_bottom.saturating_sub(top_position)
+    let clamped_row = row.clamp(track.y, track.y + track.height.saturating_sub(1));
+    let row_offset = clamped_row.saturating_sub(track.y) as usize;
+    let thumb_center = (thumb.len as usize) / 2;
+    let desired_top = row_offset.saturating_sub(thumb_center);
+    scrollbar_offset_from_thumb_top(metrics, track, desired_top)
+}
+
+pub(crate) fn scrollbar_offset_from_drag_row(
+    metrics: crate::pane::ScrollMetrics,
+    track: Rect,
+    row: u16,
+    grab_row_offset: u16,
+) -> usize {
+    let clamped_row = row.clamp(track.y, track.y + track.height.saturating_sub(1));
+    let row_offset = clamped_row.saturating_sub(track.y) as usize;
+    let desired_top = row_offset.saturating_sub(grab_row_offset as usize);
+    scrollbar_offset_from_thumb_top(metrics, track, desired_top)
 }
 
 fn render_pane_scrollbar(
@@ -732,34 +836,27 @@ fn render_pane_scrollbar(
         return;
     }
 
-    let content_length = metrics.max_offset_from_bottom + metrics.viewport_rows;
-    let position = metrics
-        .max_offset_from_bottom
-        .saturating_sub(metrics.offset_from_bottom);
-    let mut scrollbar_state = ScrollbarState::new(content_length)
-        .position(position)
-        .viewport_content_length(metrics.viewport_rows);
+    let Some(thumb) = scrollbar_thumb(metrics, track) else {
+        return;
+    };
+
     let (track_color, thumb_color, thumb_symbol) = if info.is_focused {
         (app.palette.overlay0, app.palette.overlay1, "▐")
     } else {
         (app.palette.surface_dim, app.palette.overlay0, "▕")
     };
-    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-        .begin_symbol(None)
-        .end_symbol(None)
-        .track_symbol(Some("▕"))
-        .track_style(Style::default().fg(track_color))
-        .thumb_symbol(thumb_symbol)
-        .thumb_style(Style::default().fg(thumb_color));
 
-    frame.render_stateful_widget(
-        scrollbar,
-        track.inner(Margin {
-            vertical: 0,
-            horizontal: 0,
-        }),
-        &mut scrollbar_state,
-    );
+    let buf = frame.buffer_mut();
+    for y in track.y..track.y + track.height {
+        let cell = &mut buf[(track.x, y)];
+        cell.set_symbol("▕");
+        cell.set_style(Style::default().fg(track_color));
+    }
+    for y in thumb.top..thumb.top + thumb.len {
+        let cell = &mut buf[(track.x, y)];
+        cell.set_symbol(thumb_symbol);
+        cell.set_style(Style::default().fg(thumb_color));
+    }
 }
 
 fn render_selection_highlight(
@@ -1748,6 +1845,67 @@ mod tests {
     }
 
     #[test]
+    fn alternate_screen_scrollbar_stays_hidden_for_unidentified_live_bottom() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+
+        assert!(!should_show_scrollbar(metrics, true, None));
+    }
+
+    #[test]
+    fn alternate_screen_scrollbar_shows_for_agents_at_live_bottom() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+
+        assert!(should_show_scrollbar(
+            metrics,
+            true,
+            Some(crate::detect::Agent::Codex)
+        ));
+    }
+
+    #[test]
+    fn alternate_screen_scrollbar_shows_when_user_scrolled_up() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 3,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+
+        assert!(should_show_scrollbar(metrics, true, None));
+    }
+
+    #[test]
+    fn normal_screen_scrollbar_shows_with_scrollback() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+
+        assert!(should_show_scrollbar(metrics, false, None));
+    }
+
+    #[test]
+    fn scrollbar_thumb_reaches_bottom_when_scrolled_to_bottom() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 0,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+        let track = Rect::new(9, 4, 1, 5);
+
+        let thumb = scrollbar_thumb(metrics, track).expect("thumb");
+        assert_eq!(thumb.top + thumb.len, track.y + track.height);
+    }
+
+    #[test]
     fn scrollbar_offset_mapping_hits_top_middle_and_bottom() {
         let metrics = crate::pane::ScrollMetrics {
             offset_from_bottom: 0,
@@ -1759,5 +1917,20 @@ mod tests {
         assert_eq!(scrollbar_offset_from_row(metrics, track, 4), 20);
         assert_eq!(scrollbar_offset_from_row(metrics, track, 6), 10);
         assert_eq!(scrollbar_offset_from_row(metrics, track, 8), 0);
+    }
+
+    #[test]
+    fn dragging_from_current_thumb_row_preserves_offset() {
+        let metrics = crate::pane::ScrollMetrics {
+            offset_from_bottom: 7,
+            max_offset_from_bottom: 20,
+            viewport_rows: 5,
+        };
+        let track = Rect::new(9, 4, 1, 8);
+        let thumb = scrollbar_thumb(metrics, track).expect("thumb");
+        let row = thumb.top + thumb.len / 2;
+        let grab = scrollbar_thumb_grab_offset(metrics, track, row).expect("grab");
+
+        assert_eq!(scrollbar_offset_from_drag_row(metrics, track, row, grab), 7);
     }
 }

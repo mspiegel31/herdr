@@ -100,6 +100,12 @@ pub struct ScrollMetrics {
     pub viewport_rows: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollState {
+    pub metrics: ScrollMetrics,
+    pub alternate_screen: bool,
+}
+
 impl Drop for PaneRuntime {
     fn drop(&mut self) {
         // Abort detection task immediately.
@@ -124,7 +130,7 @@ fn max_scrollback(parser: &mut vt100::Parser<PtyResponses>) -> usize {
     max_scrollback
 }
 
-fn recent_text_from_parser(parser: &mut vt100::Parser<PtyResponses>, lines: usize) -> String {
+fn parser_rows(parser: &mut vt100::Parser<PtyResponses>, lines: usize) -> Vec<String> {
     let max_scrollback = max_scrollback(parser);
     let screen = parser.screen_mut();
     let original_scrollback = screen.scrollback();
@@ -150,7 +156,10 @@ fn recent_text_from_parser(parser: &mut vt100::Parser<PtyResponses>, lines: usiz
     screen.set_scrollback(original_scrollback);
     rows.extend(visible_rows);
     trim_trailing_blank_rows(&mut rows);
+    rows
+}
 
+fn recent_text_from_rows(rows: &[String], lines: usize) -> String {
     let start = rows.len().saturating_sub(lines);
     let text = rows[start..].join("\n");
     if text.is_empty() {
@@ -158,6 +167,11 @@ fn recent_text_from_parser(parser: &mut vt100::Parser<PtyResponses>, lines: usiz
     } else {
         format!("{text}\n")
     }
+}
+
+fn recent_text_from_parser(parser: &mut vt100::Parser<PtyResponses>, lines: usize) -> String {
+    let rows = parser_rows(parser, lines);
+    recent_text_from_rows(&rows, lines)
 }
 
 fn wait_for_processes_to_exit(pids: &[u32], timeout: std::time::Duration) -> bool {
@@ -324,6 +338,7 @@ impl PaneRuntime {
                         Ok(n) => {
                             if let Ok(mut p) = parser.write() {
                                 p.process(&buf[..n]);
+
                                 // Snapshot live screen content for detection.
                                 // Always reads at scrollback 0 (current view),
                                 // without touching the user's scroll position.
@@ -557,18 +572,25 @@ impl PaneRuntime {
         }
     }
 
-    pub fn scroll_metrics(&self) -> Option<ScrollMetrics> {
+    pub fn scroll_state(&self) -> Option<ScrollState> {
         let Ok(mut parser) = self.parser.write() else {
             return None;
         };
         let max_offset_from_bottom = max_scrollback(&mut parser);
         let screen = parser.screen();
         let (viewport_rows, _) = screen.size();
-        Some(ScrollMetrics {
-            offset_from_bottom: screen.scrollback(),
-            max_offset_from_bottom,
-            viewport_rows: viewport_rows as usize,
+        Some(ScrollState {
+            metrics: ScrollMetrics {
+                offset_from_bottom: screen.scrollback(),
+                max_offset_from_bottom,
+                viewport_rows: viewport_rows as usize,
+            },
+            alternate_screen: screen.alternate_screen(),
         })
+    }
+
+    pub fn scroll_metrics(&self) -> Option<ScrollMetrics> {
+        self.scroll_state().map(|state| state.metrics)
     }
 
     pub fn visible_text(&self) -> String {
@@ -634,6 +656,28 @@ mod tests {
         let mut rows = vec!["hello".to_string(), "".to_string(), "   ".to_string()];
         trim_trailing_blank_rows(&mut rows);
         assert_eq!(rows, vec!["hello".to_string()]);
+    }
+
+    #[test]
+    fn alternate_screen_accumulates_its_own_scrollback() {
+        let responses = PtyResponses::new();
+        let mut parser = vt100::Parser::new_with_callbacks(2, 10, 100, responses);
+        parser.process(b"\x1b[?1049h1\r\n2\r\n3");
+
+        assert!(parser.screen().alternate_screen());
+        assert_eq!(max_scrollback(&mut parser), 1);
+        assert_eq!(recent_text_from_parser(&mut parser, 3), "1\n2\n3\n");
+    }
+
+    #[test]
+    fn top_anchored_scroll_regions_feed_scrollback() {
+        let responses = PtyResponses::new();
+        let mut parser = vt100::Parser::new_with_callbacks(5, 10, 100, responses);
+        parser.process(b"\x1b[?1049h1\r\n2\r\n3\r\n4\r\n5");
+        parser.process(b"\x1b[1;3r\x1b[3;1H\r\nX");
+
+        assert!(parser.screen().alternate_screen());
+        assert_eq!(max_scrollback(&mut parser), 1);
     }
 
     #[test]

@@ -10,6 +10,12 @@ use tracing::warn;
 use crate::layout::{NavDirection, PaneInfo, SplitBorder};
 use crate::selection::Selection;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrollbarClickTarget {
+    Thumb { grab_row_offset: u16 },
+    Track { offset_from_bottom: usize },
+}
+
 use super::state::{
     key_matches, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, Mode,
 };
@@ -926,14 +932,23 @@ impl AppState {
                         return None;
                     }
 
-                    if let Some((pane_id, offset_from_bottom)) =
+                    if let Some((pane_id, target)) =
                         self.scrollbar_target_at(mouse.column, mouse.row)
                     {
                         self.focus_pane(pane_id);
-                        self.set_pane_scroll_offset(pane_id, offset_from_bottom);
-                        self.drag = Some(DragState {
-                            target: DragTarget::PaneScrollbar { pane_id },
-                        });
+                        match target {
+                            ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                                self.drag = Some(DragState {
+                                    target: DragTarget::PaneScrollbar {
+                                        pane_id,
+                                        grab_row_offset,
+                                    },
+                                });
+                            }
+                            ScrollbarClickTarget::Track { offset_from_bottom } => {
+                                self.set_pane_scroll_offset(pane_id, offset_from_bottom);
+                            }
+                        }
                         if self.mode != Mode::Terminal {
                             self.mode = Mode::Terminal;
                         }
@@ -1022,10 +1037,15 @@ impl AppState {
                                 ws.layout.set_ratio_at(&path, ratio);
                             }
                         }
-                        DragTarget::PaneScrollbar { pane_id } => {
-                            if let Some(offset_from_bottom) =
-                                self.scrollbar_offset_for_pane_row(*pane_id, mouse.row)
-                            {
+                        DragTarget::PaneScrollbar {
+                            pane_id,
+                            grab_row_offset,
+                        } => {
+                            if let Some(offset_from_bottom) = self.scrollbar_offset_for_pane_row(
+                                *pane_id,
+                                mouse.row,
+                                *grab_row_offset,
+                            ) {
                                 self.set_pane_scroll_offset(*pane_id, offset_from_bottom);
                             }
                         }
@@ -1331,7 +1351,11 @@ impl AppState {
         }
     }
 
-    fn scrollbar_target_at(&self, col: u16, row: u16) -> Option<(crate::layout::PaneId, usize)> {
+    fn scrollbar_target_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<(crate::layout::PaneId, ScrollbarClickTarget)> {
         let ws = self.active.and_then(|i| self.workspaces.get(i))?;
         let info = self.view.pane_infos.iter().find(|info| {
             crate::ui::pane_scrollbar_rect(info).is_some_and(|track| {
@@ -1347,16 +1371,23 @@ impl AppState {
             return None;
         }
         let track = crate::ui::pane_scrollbar_rect(info)?;
-        Some((
-            info.id,
-            crate::ui::scrollbar_offset_from_row(metrics, track, row),
-        ))
+        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
+            Some((info.id, ScrollbarClickTarget::Thumb { grab_row_offset }))
+        } else {
+            Some((
+                info.id,
+                ScrollbarClickTarget::Track {
+                    offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
+                },
+            ))
+        }
     }
 
     fn scrollbar_offset_for_pane_row(
         &self,
         pane_id: crate::layout::PaneId,
         row: u16,
+        grab_row_offset: u16,
     ) -> Option<usize> {
         let ws = self.active.and_then(|i| self.workspaces.get(i))?;
         let info = self
@@ -1370,7 +1401,12 @@ impl AppState {
         if metrics.max_offset_from_bottom == 0 {
             return None;
         }
-        Some(crate::ui::scrollbar_offset_from_row(metrics, track, row))
+        Some(crate::ui::scrollbar_offset_from_drag_row(
+            metrics,
+            track,
+            row,
+            grab_row_offset,
+        ))
     }
 }
 

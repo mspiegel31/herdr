@@ -397,6 +397,7 @@ pub(crate) enum DragTarget {
     },
     PaneScrollbar {
         pane_id: crate::layout::PaneId,
+        grab_row_offset: u16,
     },
     SidebarDivider,
 }
